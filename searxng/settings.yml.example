@@ -1,0 +1,30 @@
+# Minimal SearXNG configuration for the Discovery integration.
+#
+# The one setting that is not optional is `formats: [json]`. SearXNG disables the
+# JSON output format by default, and without it the backend's /api/discover proxy
+# receives HTML and reports a 502 — which is the single most common reason
+# Discovery "does not work".
+
+use_default_settings: true
+
+server:
+  # Replace this before starting. `openssl rand -hex 32` produces a suitable value.
+  secret_key: "CHANGE_ME_openssl_rand_hex_32"
+  limiter: false
+  image_proxy: true
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
+
+engines:
+  - name: bing images
+    disabled: false
+  - name: google images
+    disabled: false
+  - name: openverse
+    disabled: false
+  - name: wikicommons.images
+    disabled: false

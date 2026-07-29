@@ -1,0 +1,136 @@
+"""Model -> response conversion.
+
+Kept out of the routers so that the URL scheme for images is defined exactly
+once: every place an item is returned uses the same thumb/display/download
+triple, and changing the route prefix is a one-line change here.
+"""
+
+from __future__ import annotations
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, object_session
+
+from .models import Board, BoardItem, BoardQueryTag, BoardSubboardTag, Item, Tag
+from .schemas import BoardOut, ItemOut, ItemUrls, TagOut
+
+
+def item_urls(item: Item) -> ItemUrls:
+    return ItemUrls(
+        thumb=f"/api/items/{item.id}/file/thumb",
+        display=f"/api/items/{item.id}/file/display",
+        download=f"/api/items/{item.id}/download",
+    )
+
+
+def _displayed(item: Item) -> Item:
+    """Resolve which file an artwork shows, without needing a session passed in.
+
+    The session is taken from the instance itself so every existing call site
+    keeps working unchanged; a detached instance simply shows its own file. A
+    dangling or deleted pointer also falls back to the artwork's own file, so a
+    stale canonical choice degrades to the original rather than to a broken
+    image.
+    """
+    if item.canonical_version_id is None:
+        return item
+    session = object_session(item)
+    if session is None:
+        return item
+    chosen = session.get(Item, item.canonical_version_id)
+    if chosen is None or chosen.is_deleted or chosen.version_of_id != item.id:
+        return item
+    return chosen
+
+
+def item_out(item: Item, display: Item | None = None) -> ItemOut:
+    """Serialize an item, showing the canonical version's pixels when one is set.
+
+    An artwork with a chosen canonical version keeps its own id, title, tags and
+    board memberships — only the image URLs and the file-level metadata come from
+    the file being displayed. That separation is the point: switching which scan
+    is shown must not move the artwork in the grid or detach it from its boards.
+    """
+    shown = display or _displayed(item)
+    return ItemOut(
+        id=item.id,
+        hash=item.hash,
+        phash=item.phash,
+        title=item.title,
+        description=item.description,
+        width=shown.width,
+        height=shown.height,
+        filesize=shown.filesize,
+        mime_type=shown.mime_type,
+        source_url=item.source_url,
+        dominant_color=shown.dominant_color,
+        orientation=shown.orientation,
+        parent_item_id=item.parent_item_id,
+        derivative_target=item.derivative_target,
+        variant_label=item.variant_label,
+        version_of_id=item.version_of_id,
+        canonical_version_id=item.canonical_version_id,
+        displayed_item_id=shown.id,
+        is_deleted=item.is_deleted,
+        deleted_at=item.deleted_at,
+        added_at=item.added_at,
+        updated_at=item.updated_at,
+        tags=[TagOut.model_validate(t) for t in item.tags],
+        urls=item_urls(shown),
+    )
+
+
+def board_out(db: Session, board: Board) -> BoardOut:
+    from .services import queries  # local import: queries imports models, not this module
+
+    if board.is_dynamic:
+        count = (
+            db.scalar(
+                select(func.count()).select_from(
+                    queries.dynamic_board_item_ids(db, board).subquery()
+                )
+            )
+            or 0
+        )
+        rows = db.execute(
+            select(Tag, BoardQueryTag.match_mode)
+            .join(BoardQueryTag, BoardQueryTag.tag_id == Tag.id)
+            .where(BoardQueryTag.board_id == board.id)
+        ).all()
+        query_tags = [TagOut.model_validate(r[0]) for r in rows]
+        match_mode = rows[0][1] if rows else "any"
+    else:
+        count = (
+            db.scalar(
+                select(func.count())
+                .select_from(BoardItem)
+                .join(Item, Item.id == BoardItem.item_id)
+                .where(BoardItem.board_id == board.id, Item.is_deleted.is_(False))
+            )
+            or 0
+        )
+        query_tags = []
+        match_mode = "any"
+
+    subboards = db.scalars(
+        select(Tag)
+        .join(BoardSubboardTag, BoardSubboardTag.tag_id == Tag.id)
+        .where(BoardSubboardTag.board_id == board.id, BoardSubboardTag.is_active.is_(True))
+    ).all()
+
+    return BoardOut(
+        id=board.id,
+        name=board.name,
+        slug=board.slug,
+        description=board.description,
+        cover_item_id=board.cover_item_id,
+        cover_url=(
+            f"/api/items/{board.cover_item_id}/file/display" if board.cover_item_id else None
+        ),
+        is_dynamic=board.is_dynamic,
+        created_at=board.created_at,
+        position=board.position,
+        item_count=count,
+        query_tags=query_tags,
+        match_mode=match_mode,
+        subboard_tags=[TagOut.model_validate(t) for t in subboards],
+    )
