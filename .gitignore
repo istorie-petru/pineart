@@ -12,3 +12,6 @@ searxng/settings.yml
 *.swp
 .idea/
 .vscode/
+
+# Personal dev tooling — not part of the app.
+/publish.sh
