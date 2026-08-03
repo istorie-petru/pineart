@@ -1,0 +1,23 @@
+# Caddyfile used by the frontend container in the Docker Compose path.
+# For the native deployment see backend/deploy/Caddyfile.example, which serves
+# the same layout from the host instead.
+
+:80 {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		root * /srv
+		# The app is a single HTML entry point; unknown paths fall back to it so
+		# a refresh on any route works.
+		try_files {path} /index.html
+		file_server
+	}
+
+	request_body {
+		max_size 32MB
+	}
+}

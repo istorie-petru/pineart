@@ -1,0 +1,73 @@
+# Docker Compose deployment — architecture §9b.
+#
+# The alternative path, kept for anyone not running a Proxmox LXC directly. It
+# mirrors the native deployment's service boundaries exactly: the app is not
+# exposed to the network, the proxy is, and SearXNG (optional) sits on an
+# internal-only network reachable solely through the backend proxy.
+
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      ARTBOARD_DATA_DIR: /data
+      # Same-origin behind the proxy, so no CORS origins are needed at all.
+      ARTBOARD_CORS_ORIGINS: ""
+      # The proxy terminates TLS, so the session cookie is marked Secure.
+      # Set this to false only if you are deliberately serving over plain HTTP.
+      ARTBOARD_SECURE_COOKIES: "true"
+      ARTBOARD_SEARXNG_URL: "http://searxng:8080"
+    volumes:
+      - artboard-data:/data
+    networks:
+      - internal
+    # Deliberately no `ports:` — the backend is reachable only through the proxy.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - internal
+
+  # Started only with `--profile discovery`, because Discovery is optional and
+  # SearXNG is a second service to keep updated.
+  searxng:
+    image: searxng/searxng:latest
+    profiles: ["discovery"]
+    restart: unless-stopped
+    environment:
+      SEARXNG_BASE_URL: "http://searxng:8080/"
+    volumes:
+      # One file, not the directory around it. The image runs `chown -R` over
+      # /etc/searxng at startup; with a directory mount that chown applies to the
+      # host directory, and afterwards nothing on the host can write into it
+      # without root — which turns `./run.sh --discovery` into a sudo ritual.
+      - ./searxng/settings.yml:/etc/searxng/settings.yml
+    networks:
+      - internal
+    # No ports either: SearXNG is reachable only from the backend's proxy, which
+    # is the isolation requirement from §9a carried over unchanged.
+
+volumes:
+  artboard-data:
+
+networks:
+  # Note `internal: false` despite the name: isolation here comes from *not
+  # publishing ports* on the backend and SearXNG, not from cutting off egress.
+  # A Docker network with `internal: true` blocks outbound traffic entirely,
+  # which would stop SearXNG from reaching any search engine and stop
+  # /api/discover/save from downloading the image you just asked it to save —
+  # i.e. it would disable the feature it is meant to protect.
+  internal:
+    internal: false

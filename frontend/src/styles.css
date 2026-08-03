@@ -1,0 +1,951 @@
+/* Design tokens — architecture §8.
+   Every colour, radius and gutter below is referenced through a variable, never
+   hard-coded, which is what makes the accent swap and a fork's restyle a
+   two-line change rather than a hunt through component CSS. */
+:root {
+  --color-bg: #fafaf8;
+  --color-surface: #f2f0ec;
+  --color-surface-2: #e9e6e0;
+  --color-text: #201d1a;
+  --color-text-muted: #7a746c;
+  --color-accent: #e63946;
+  --color-border: #e6e2da;
+  --radius-card: 16px;
+  --radius-sm: 8px;
+  --gutter: 14px;
+  --transition-fast: 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  --shadow-rest: 0 1px 3px rgba(50, 35, 20, 0.06);
+  --shadow-hover: 0 10px 26px rgba(50, 35, 20, 0.16);
+  /* Tells the browser which palette to render its own native chrome in —
+     checkbox/radio ticks, number-input spinners, date/color pickers,
+     scrollbars — for whatever it doesn't hand off to custom CSS. Without
+     this a dark-themed page still gets light-themed native controls, because
+     the browser has no other way to know the page went dark. `accent-color`
+     is the other half: it recolours the same native controls' "on" state to
+     match the app instead of the browser's default blue. */
+  color-scheme: light;
+  accent-color: var(--color-accent);
+}
+
+[data-theme="dark"] {
+  --color-bg: #17140f;
+  --color-surface: #211d17;
+  --color-surface-2: #2a251d;
+  --color-text: #f0ede6;
+  --color-text-muted: #a49c8e;
+  --color-border: #322c22;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, "Inter", "Segoe UI", sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+a { color: inherit; }
+
+button, input, select, textarea { font-family: inherit; }
+
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+/* ---------- top navigation ---------- */
+header.topnav {
+  display: flex; align-items: center; gap: 18px; padding: 12px 20px;
+  border-bottom: 1px solid var(--color-border); position: sticky; top: 0;
+  background: var(--color-bg); z-index: 50;
+}
+.logo { font-weight: 700; font-size: 17px; letter-spacing: -0.02em; margin-right: 8px; }
+nav.views { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+nav.views button {
+  background: none; border: none; padding: 8px 12px; border-radius: 20px;
+  font-size: 13.5px; color: var(--color-text-muted); cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+nav.views button:hover { background: var(--color-surface); color: var(--color-text); }
+nav.views button.active { background: var(--color-text); color: var(--color-bg); }
+nav.views button.icon-nav-btn { padding: 9px; border-radius: 50%; display: inline-flex; }
+.nav-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.icon-btn {
+  background: none; border: none; padding: 9px; border-radius: 50%; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--color-text-muted); transition: background var(--transition-fast), color var(--transition-fast);
+}
+.icon-btn:hover { background: var(--color-surface); color: var(--color-text); }
+.icon-btn.danger:hover { background: color-mix(in srgb, #e63946 16%, var(--color-surface)); color: #b3212e; }
+[data-theme="dark"] .icon-btn.danger:hover { color: #ff8a93; }
+
+/* Every text-like input, by type rather than by class — a new form anywhere
+   in the app should not have to remember to opt an input into this, it
+   should be the ground state. (Checkbox/radio/range/color/file are
+   deliberately excluded: each of those gets its own rule below instead of
+   the boxed-surface treatment, native or custom as appropriate.) */
+input[type="search"],
+input[type="text"],
+input[type="number"],
+input[type="url"],
+input[type="password"],
+input[type="email"],
+select,
+textarea {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  color: var(--color-text); border-radius: var(--radius-sm); padding: 7px 10px; font-size: 13px;
+}
+input::placeholder, textarea::placeholder { color: var(--color-text-muted); opacity: 1; }
+
+/* Checkbox and radio: hand-drawn rather than left to native rendering.
+   `accent-color`/`color-scheme` (set on :root) get native controls most of
+   the way to matching the theme, but "most of the way" still means a
+   different corner radius, a different white, a different everything on
+   some browser/OS combinations — the one guarantee of actually matching the
+   rest of the app is not using native paint for it at all. */
+input[type="checkbox"], input[type="radio"] {
+  appearance: none; -webkit-appearance: none; margin: 0;
+  width: 16px; height: 16px; flex-shrink: 0; vertical-align: middle;
+  border: 1.5px solid var(--color-border); border-radius: 4px;
+  background: var(--color-surface); cursor: pointer; position: relative;
+  transition: var(--transition-fast);
+}
+input[type="radio"] { border-radius: 50%; }
+input[type="checkbox"]:hover, input[type="radio"]:hover { border-color: var(--color-accent); }
+input[type="checkbox"]:checked, input[type="radio"]:checked {
+  background: var(--color-accent); border-color: var(--color-accent);
+}
+input[type="checkbox"]:checked::after {
+  content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px;
+  border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+input[type="radio"]:checked::after {
+  content: ""; position: absolute; inset: 3px; border-radius: 50%; background: #fff;
+}
+input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
+  outline: 2px solid var(--color-accent); outline-offset: 2px;
+}
+
+input[type="color"] {
+  width: 30px; height: 30px; border: none; border-radius: 50%;
+  overflow: hidden; padding: 0; cursor: pointer;
+}
+.accent-swatch-btn {
+  width: 26px; height: 26px; border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px rgba(0, 0, 0, 0.15);
+  cursor: pointer; position: relative; overflow: hidden; flex-shrink: 0;
+}
+.accent-swatch-btn input[type="color"] {
+  position: absolute; inset: -4px; width: calc(100% + 8px); height: calc(100% + 8px);
+  opacity: 0; cursor: pointer; border: none; padding: 0;
+}
+
+main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+section.view { display: none; }
+section.view.active { display: block; animation: view-in 220ms ease-out; }
+.subview { display: none; }
+.subview.active { display: block; }
+
+@keyframes view-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+h2.view-title { font-size: 18px; margin: 0 0 4px; }
+p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px; max-width: 680px; }
+.empty-msg { text-align: center; color: var(--color-text-muted); font-size: 13px; padding: 40px 0; }
+
+/* ---------- profile header ---------- */
+.profile-header { text-align: center; margin-bottom: 20px; }
+.profile-banner {
+  height: 180px; border-radius: var(--radius-card); box-shadow: var(--shadow-rest);
+  background-size: cover; background-position: center;
+}
+.profile-avatar-wrap { margin-top: -48px; display: flex; justify-content: center; }
+.profile-avatar {
+  width: 96px; height: 96px; border-radius: 50%; border: 4px solid var(--color-bg);
+  box-shadow: var(--shadow-hover); background-size: cover; background-position: center;
+}
+.profile-name { margin: 12px 0 3px; font-size: 19px; }
+.profile-desc {
+  color: var(--color-text-muted); font-size: 13px; margin: 0 auto 14px; max-width: 480px;
+}
+.profile-links { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.link-pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 999px;
+  background: var(--color-surface); font-size: 12.5px; cursor: pointer;
+  border: 1px solid var(--color-border); transition: var(--transition-fast);
+  text-decoration: none; color: var(--color-text);
+}
+.link-pill:hover { background: var(--color-surface-2); transform: translateY(-1px); }
+.link-pill.add-pill { border-style: dashed; color: var(--color-text-muted); }
+.link-pill .pill-edit { opacity: 0.5; margin-left: 2px; }
+.link-pill:hover .pill-edit { opacity: 1; }
+
+/* ---------- controls ---------- */
+.segmented {
+  display: inline-flex; background: var(--color-surface); border-radius: 999px;
+  padding: 3px; margin-bottom: 18px; gap: 2px;
+}
+.segmented button {
+  border: none; background: transparent; padding: 7px 16px; border-radius: 999px;
+  font-size: 13px; cursor: pointer; color: var(--color-text-muted); transition: var(--transition-fast);
+}
+.segmented button.active { background: var(--color-bg); color: var(--color-text); box-shadow: var(--shadow-rest); }
+
+.search-filter-container { position: relative; }
+.chip {
+  padding: 6px 12px; border-radius: 20px; font-size: 12.5px; border: 1px solid var(--color-border);
+  background: var(--color-surface); cursor: pointer; transition: var(--transition-fast);
+  white-space: nowrap; flex-shrink: 0; color: var(--color-text);
+}
+.chip.active { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
+.filterbar { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+.search-row { display: flex; gap: 10px; }
+.search-input-wrap {
+  flex: 1; display: flex; align-items: center; gap: 8px; background: var(--color-surface);
+  border-radius: 999px; padding: 8px 14px; color: var(--color-text-muted);
+}
+.search-input-wrap input { border: none; background: none; padding: 0; flex: 1; font-size: 13px; color: var(--color-text); }
+.search-input-wrap input:focus { outline: none; }
+.filter-dropdown {
+  display: none; position: absolute; top: calc(100% + 8px); left: 0; right: 0;
+  background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 16px;
+  box-shadow: var(--shadow-hover); padding: 16px; z-index: 45;
+}
+.filter-dropdown.open { display: block; }
+.dropdown-search { width: 100%; margin-bottom: 10px; }
+.dropdown-tags {
+  display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; margin-bottom: 14px;
+}
+.dropdown-tag-group-label {
+  display: block; margin: 6px 0 2px; font-size: 10px; color: var(--color-text-muted);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.dropdown-tag-group-label:first-child { margin-top: 0; }
+.dropdown-divider { height: 1px; background: var(--color-border); margin: 4px 0 14px; }
+.dropdown-section { margin-bottom: 12px; }
+.dropdown-section .fg-label {
+  display: block; margin-bottom: 8px; font-size: 10px; color: var(--color-text-muted);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.chip-row, .swatch-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.swatch { width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 2px solid var(--color-border); }
+.swatch.active { box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-text); }
+
+.banner {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  background: var(--color-surface); border-radius: var(--radius-sm); font-size: 13px; margin-bottom: 16px;
+}
+/* Accent-colored rather than an inverted text/bg pair: inverting against
+   `--color-text`/`--color-bg` looked fine in light mode (a dark bar) but
+   flipped to a bright cream bar in dark mode, which is exactly the kind of
+   theme-inconsistent surface this should not be. The accent colour is the
+   same one every other primary action already uses, in either theme. */
+.bulk-toolbar {
+  display: none; gap: 10px; align-items: center; padding: 10px 14px;
+  background: var(--color-accent); color: #fff; border-radius: var(--radius-sm);
+  margin-bottom: 14px; font-size: 13px; flex-wrap: wrap;
+}
+.bulk-toolbar.active { display: flex; }
+.bulk-toolbar button {
+  background: transparent; border: 1px solid rgba(255, 255, 255, 0.6); color: #fff;
+  border-radius: 14px; padding: 5px 10px; font-size: 12px; cursor: pointer;
+}
+.bulk-toolbar button:hover { background: rgba(255, 255, 255, 0.15); }
+
+/* ---------- masonry grid ---------- */
+.masonry { position: relative; }
+.card {
+  border-radius: var(--radius-card); overflow: hidden; position: absolute; cursor: pointer;
+  background: var(--color-surface); box-shadow: var(--shadow-rest);
+  transition: left var(--transition-fast), top var(--transition-fast), width var(--transition-fast),
+    transform var(--transition-fast), box-shadow var(--transition-fast);
+  /* Plays once, on insertion, per card — relayout only ever repositions the
+     same element via left/top/width, it never recreates it, so a card already
+     on screen never replays this. `backwards` (not `forwards`) matters: it
+     shows the "from" state during the staggered delay below, but lets go
+     cleanly once the animation ends instead of permanently pinning `transform`
+     to the animation's last frame — which would otherwise sit on top of and
+     block the `:hover` scale effect above forever after the intro played.
+     `--card-delay` is set per-card by Grid.append() for the stagger. */
+  animation: card-in 320ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation-delay: var(--card-delay, 0ms);
+}
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card, section.view.active, .modal-backdrop.active, .modal { animation: none; }
+}
+.card:hover { transform: scale(1.025); box-shadow: var(--shadow-hover); z-index: 2; }
+.card .art { width: 100%; display: block; object-fit: cover; }
+.card .overlay {
+  position: absolute; inset: 0; background: linear-gradient(to top, rgba(0, 0, 0, 0.55), transparent 45%);
+  opacity: 0; transition: opacity var(--transition-fast); display: flex; align-items: flex-end; padding: 10px;
+}
+.card:hover .overlay { opacity: 1; }
+.card .overlay .save-row { display: flex; gap: 6px; align-items: center; }
+/* The accent colour, not a hardcoded white pill: it needs to read clearly
+   over any photo regardless of theme, and using the same colour as every
+   other primary action (`.btn-filled`) means it doesn't flip to a jarring
+   white-on-dark chip specifically in dark mode. */
+.card .overlay .save-btn {
+  background: var(--color-accent); color: #fff; font-size: 12px; font-weight: 600; padding: 6px 12px;
+  border-radius: 18px; border: none; cursor: pointer;
+}
+.card .overlay .save-btn:disabled { opacity: 0.7; cursor: default; }
+.card .overlay .save-btn.icon-only { padding: 7px; border-radius: 50%; display: inline-flex; }
+/* Selection mode: entered via a card's "Bulk select" ⋮ entry (there is no
+   permanent checkbox), after which the whole card is the target — a click
+   anywhere on it toggles selection instead of opening it. */
+.masonry.selecting .card { cursor: copy; }
+.masonry.selecting .card:hover { transform: none; }
+.card.selected { outline: 3px solid var(--color-accent); outline-offset: -3px; }
+
+.kebab-wrap { position: absolute; top: 8px; right: 8px; z-index: 4; opacity: 0; transition: var(--transition-fast); }
+.card:hover .kebab-wrap, .kebab-wrap.open { opacity: 1; }
+.kebab-btn {
+  width: 26px; height: 26px; border-radius: 50%; background: rgba(0, 0, 0, 0.5); border: none;
+  color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.kebab-menu {
+  /* `top`/`left`/`right`/`position` are set inline by card.ts once open — it
+     computes them off the button's actual screen position (and flips above
+     the button when there isn't room below), because this menu is
+     reparented to `document.body` while open rather than staying inside the
+     card. A card is `overflow: hidden` for its rounded corners, and a wide,
+     short pin leaves little room below the ⋮ button before hitting that
+     clip; escaping the card entirely is what keeps the whole menu visible. */
+  display: none; background: var(--color-bg);
+  border: 1px solid var(--color-border); border-radius: 10px; box-shadow: var(--shadow-hover);
+  min-width: 190px; overflow: hidden; z-index: 300;
+}
+.kebab-menu.open { display: block; }
+.kebab-menu button {
+  display: block; width: 100%; text-align: left; padding: 10px 14px; background: none;
+  border: none; font-size: 12.5px; cursor: pointer; color: var(--color-text);
+}
+.kebab-menu button:hover { background: var(--color-surface); }
+.kebab-divider { height: 1px; background: var(--color-border); margin: 4px 0; }
+.kebab-icon-row { display: flex; align-items: center; justify-content: space-around; padding: 6px 8px; }
+.kebab-icon-row button.icon-only {
+  width: auto; display: inline-flex; align-items: center; justify-content: center;
+  padding: 7px; border-radius: 8px; color: var(--color-text-muted);
+}
+.kebab-icon-row button.icon-only:hover { background: var(--color-surface); color: var(--color-text); }
+.kebab-menu button:disabled { opacity: 0.4; cursor: not-allowed; background: none !important; }
+
+/* Standalone dropdown (the "Add images" menu). Same visual language as the card
+   kebab menu, but with no shared class: its visibility is presence in the DOM,
+   so no other component's close-everything handler can hide it. */
+.menu-popover {
+  position: absolute; z-index: 60; background: var(--color-bg);
+  border: 1px solid var(--color-border); border-radius: 10px;
+  box-shadow: var(--shadow-hover); min-width: 200px; overflow: hidden;
+}
+.menu-popover button {
+  display: block; width: 100%; text-align: left; padding: 10px 14px;
+  background: none; border: none; font-size: 12.5px; cursor: pointer; color: var(--color-text);
+}
+.menu-popover button:hover { background: var(--color-surface); }
+
+/* ---------- icons and buttons ---------- */
+.micon { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
+.micon svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.micon.small svg { width: 16px; height: 16px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; border: none;
+  font-size: 13px; font-weight: 600; padding: 8px 16px; cursor: pointer; transition: var(--transition-fast);
+  /* `.btn` decorates plain `<button>`s and the odd `<a>` (Download) alike —
+     without this, the anchor got the browser's default underline and no
+     other button did, which is exactly the "why is only one of these
+     underlined" inconsistency to avoid. */
+  text-decoration: none;
+}
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn-filled { background: var(--color-accent); color: #fff; }
+.btn-filled:hover:not(:disabled) { filter: brightness(1.08); }
+.btn-tonal { background: color-mix(in srgb, var(--color-accent) 16%, var(--color-surface)); color: var(--color-text); }
+.btn-tonal:hover:not(:disabled) { background: color-mix(in srgb, var(--color-accent) 26%, var(--color-surface)); }
+.btn-outlined { background: transparent; border: 1px solid var(--color-border); color: var(--color-text); }
+.btn-outlined:hover:not(:disabled) { background: var(--color-surface); }
+.btn-error-tonal { background: color-mix(in srgb, #e63946 16%, var(--color-surface)); color: #b3212e; }
+[data-theme="dark"] .btn-error-tonal { color: #ff8a93; }
+
+/* ---------- modals ---------- */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: none;
+  align-items: center; justify-content: center; z-index: 100; padding: 20px;
+}
+.modal-backdrop.active { display: flex; animation: modal-backdrop-in 180ms ease-out; }
+@keyframes modal-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.modal {
+  background: var(--color-bg); border-radius: var(--radius-card); max-width: 920px; width: 100%;
+  max-height: 88vh; display: flex; overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  position: relative;
+  animation: modal-pop-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes modal-pop-in {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.modal .img-pane {
+  flex: 1.3; background: var(--color-surface-2); display: flex; align-items: center;
+  justify-content: center; min-height: 400px; overflow: hidden;
+}
+.modal .img-pane img { max-width: 100%; max-height: 88vh; display: block; }
+/* The pin modal specifically: a fixed footprint instead of one that reshapes
+   itself per image. A tall portrait and a wide landscape used to produce
+   differently-sized modals entirely — jarring when moving between pins with
+   ← → — so here the *pane* is a fixed box (filling the modal's own fixed
+   height via flex stretch) with padding, and the image sits inside it
+   letterboxed (`object-fit: contain`) rather than dictating the box's shape. */
+.modal.item-modal { width: 920px; height: 600px; max-width: calc(100vw - 40px); max-height: calc(100vh - 40px); }
+.modal.item-modal .img-pane { min-height: 0; padding: 20px; }
+.modal.item-modal .img-pane img { width: 100%; height: 100%; max-width: none; max-height: none; object-fit: contain; }
+.modal .info-pane { flex: 1; padding: 20px; overflow-y: auto; }
+.modal .info-pane h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+.modal .info-pane p.meta { color: var(--color-text-muted); font-size: 12.5px; margin: 0 0 14px; }
+.tag-chip {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; padding: 4px 9px;
+  border-radius: 12px; margin: 0 5px 5px 0; color: #fff; border: none; cursor: default;
+}
+.tag-chip button { background: none; border: none; color: inherit; cursor: pointer; padding: 0; line-height: 1; }
+.tag-chip a { color: inherit; text-decoration: underline; text-decoration-style: dotted; }
+.tag-chip .micon svg { width: 12px; height: 12px; }
+.modal .actions {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--color-border);
+}
+.modal .rec-strip { display: flex; gap: 8px; overflow-x: auto; margin-top: 8px; }
+.modal .rec-strip img { width: 64px; height: 64px; border-radius: 8px; flex-shrink: 0; object-fit: cover; cursor: pointer; }
+.modal .close-btn {
+  position: absolute; top: 14px; right: 14px; background: rgba(0, 0, 0, 0.5); color: #fff;
+  border: none; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; z-index: 5;
+  display: flex; align-items: center; justify-content: center;
+}
+/* Click-to-edit text in the item modal: it has to look like text, not like a
+   form field, while still advertising that it is editable on hover. */
+.editable { cursor: text; border-radius: 6px; padding: 2px 4px; margin-left: -4px; transition: background var(--transition-fast); }
+.editable:hover { background: var(--color-surface); }
+.editable.placeholder { color: var(--color-text-muted); font-style: italic; }
+
+/* Circular crop preview for the avatar destination. Cropper.js draws a
+   rectangular box; this makes the box and its shaded surround round so the
+   preview matches the shape the avatar is actually rendered in. */
+.crop-round .cropper-view-box,
+.crop-round .cropper-face { border-radius: 50%; }
+.crop-round .cropper-view-box { outline: 2px solid rgba(255, 255, 255, 0.85); }
+.crop-round .cropper-line, .crop-round .cropper-point { display: none; }
+
+.link-modal-body, .crop-modal-body, .simple-modal-body { padding: 22px; width: 100%; }
+.link-modal-body h3, .crop-modal-body h3, .simple-modal-body h3 { margin: 0 0 16px; font-size: 15px; }
+.link-modal-body label, .crop-modal-body label, .simple-modal-body label {
+  display: block; font-size: 12px; color: var(--color-text-muted); margin: 12px 0 5px;
+}
+.link-modal-body input[type="text"], .simple-modal-body input[type="text"],
+.simple-modal-body textarea, .simple-modal-body select { width: 100%; }
+.icon-picker { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 6px; }
+.icon-picker button {
+  aspect-ratio: 1; border-radius: 10px; border: 1px solid var(--color-border);
+  background: var(--color-surface); display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: var(--color-text); transition: var(--transition-fast);
+}
+.icon-picker button.selected { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
+
+.crop-stage-wrap { display: flex; justify-content: center; max-height: 46vh; overflow: hidden; }
+.crop-stage-wrap img { max-width: 100%; display: block; }
+.checkbox-list { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.checkbox-list label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--color-text); margin: 0; }
+
+/* ---------- boards ---------- */
+.board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 18px; }
+.board-card {
+  cursor: pointer;
+  /* Same staggered pop-in every pin card gets — see `.card`'s animation
+     comment; `--card-delay` is set per-card in boards.ts's renderBoards(). */
+  animation: card-in 320ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation-delay: var(--card-delay, 0ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .board-card { animation: none; }
+}
+.board-card .board-cover {
+  border-radius: var(--radius-card); height: 150px; box-shadow: var(--shadow-rest);
+  transition: var(--transition-fast); background: var(--color-surface-2);
+  background-size: cover; background-position: center;
+}
+.board-card:hover .board-cover { box-shadow: var(--shadow-hover); transform: scale(1.015); }
+.board-card .board-name { font-size: 13.5px; font-weight: 600; margin-top: 9px; display: flex; align-items: center; gap: 6px; }
+.board-card .board-desc {
+  font-size: 12px; color: var(--color-text-muted); margin-top: 2px; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; background: var(--color-surface-2); color: var(--color-text-muted); }
+.new-board-card {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; height: 150px;
+  border-radius: var(--radius-card); border: 1.5px dashed var(--color-border);
+  color: var(--color-text-muted); cursor: pointer; gap: 6px; font-size: 12.5px;
+  transition: var(--transition-fast); background: none; width: 100%;
+}
+.new-board-card:hover { background: var(--color-surface); color: var(--color-text); }
+
+.board-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
+.subboard-tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+.drag-item { cursor: grab; }
+.drag-item:active, .drag-item .handle:active { cursor: grabbing; }
+.drag-item .handle {
+  position: absolute; top: 8px; left: 8px; background: rgba(0, 0, 0, 0.4); color: #fff;
+  width: 22px; height: 22px; border-radius: 5px; display: flex; align-items: center;
+  justify-content: center; opacity: 0; transition: var(--transition-fast); z-index: 3;
+}
+.drag-item:hover .handle { opacity: 1; }
+.sortable-ghost { opacity: 0.4; }
+
+/* While a drag is in progress the masonry's absolute positioning is turned off:
+   SortableJS needs to reorder elements in normal flow to compute drop targets,
+   and absolutely positioned siblings have no flow order to reorder. */
+.masonry.dragging { display: flex; flex-wrap: wrap; gap: var(--gutter); height: auto !important; }
+.masonry.dragging .card { position: relative; left: auto !important; top: auto !important; }
+
+/* ---------- drawer ---------- */
+.drawer-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); display: none; z-index: 110; }
+.drawer-backdrop.active { display: block; }
+.drawer {
+  position: fixed; top: 0; right: -360px; width: 340px; height: 100%; background: var(--color-bg);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.2); padding: 20px; overflow-y: auto;
+  transition: right var(--transition-fast);
+}
+.drawer-backdrop.active .drawer { right: 0; }
+.drawer h3 { margin: 0 0 16px; font-size: 15px; }
+.drawer label { display: block; font-size: 12px; color: var(--color-text-muted); margin: 14px 0 5px; }
+.drawer input[type="text"], .drawer textarea { width: 100%; }
+.drawer textarea { resize: vertical; min-height: 60px; }
+.drawer-close { position: absolute; top: 16px; right: 16px; background: none; border: none; cursor: pointer; color: var(--color-text-muted); }
+.drawer-hint { font-size: 12px; color: var(--color-text-muted); margin-top: 14px; padding: 10px 12px; background: var(--color-surface); border-radius: 8px; }
+
+/* ---------- tag graph ---------- */
+#tagGraph {
+  width: 100%; height: 460px; border-radius: var(--radius-card); background: var(--color-surface);
+  border: 1px solid var(--color-border); overflow: hidden; position: relative;
+}
+#tagGraph svg { display: block; }
+.graph-recenter-btn {
+  position: absolute; top: 8px; right: 8px; z-index: 5;
+  background: var(--color-bg); box-shadow: var(--shadow-rest);
+}
+.graph-recenter-btn:hover { background: var(--color-surface-2); }
+.graph-node text { fill: var(--color-text-muted); font-size: 10px; user-select: none; }
+
+/* Tags panel: graph on the left, one sidebar card on the right holding the
+   tag editor, categories and rules/physics as tabs instead of four stacked
+   cards competing for the same vertical scroll. */
+.tags-layout { display: flex; gap: 16px; align-items: flex-start; }
+.tags-graph-col { flex: 1; min-width: 0; }
+.tags-sidebar {
+  width: 340px; flex-shrink: 0; background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-card); padding: 14px 16px; box-sizing: border-box; overflow: hidden;
+}
+/* Categories and rules both list as name + edit + remove — adding or editing
+   either happens in a modal (categoryModal.ts / graphRuleModal.ts), not an
+   inline form, so the sidebar never has to fit "name input + color swatch +
+   two buttons" on one 340px-wide line. */
+.sidebar-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.sidebar-list-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 8px; background: var(--color-bg); border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.sidebar-list-row .row-name {
+  flex: 1; min-width: 0; font-size: 12.5px; display: flex; align-items: center; gap: 6px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sidebar-list-row .row-name .micon { flex-shrink: 0; }
+.sidebar-list-row .row-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.sidebar-list-row .row-actions button {
+  background: none; border: none; cursor: pointer; color: var(--color-text-muted);
+  padding: 3px; display: flex; border-radius: 4px; transition: var(--transition-fast);
+}
+.sidebar-list-row .row-actions button:hover { color: var(--color-text); background: var(--color-surface-2); }
+.sidebar-list-row .row-actions .micon svg { width: 15px; height: 15px; }
+.tags-sidebar-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--color-border); margin-bottom: 14px; }
+.tags-sidebar-tabs button {
+  flex: 1; padding: 8px 4px; border: none; background: none; font-size: 12.5px; color: var(--color-text-muted);
+  cursor: pointer; border-bottom: 2px solid transparent; transition: var(--transition-fast);
+}
+.tags-sidebar-tabs button.active { color: var(--color-text); border-bottom-color: var(--color-accent); font-weight: 600; }
+.tags-sidebar-tabs button:hover { color: var(--color-text); }
+.tags-sidebar-panel { display: none; }
+.tags-sidebar-panel.active { display: block; }
+.tags-sidebar-divider { height: 1px; background: var(--color-border); margin: 14px 0; }
+
+@media (max-width: 900px) {
+  .tags-layout { flex-direction: column; }
+  .tags-sidebar { width: 100%; }
+}
+
+/* ---------- trash ---------- */
+.trash-card { opacity: 0.55; }
+.trash-card:hover { opacity: 1; }
+.trash-actions { position: absolute; bottom: 8px; left: 8px; right: 8px; display: flex; gap: 6px; opacity: 0; transition: var(--transition-fast); z-index: 3; }
+.trash-card:hover .trash-actions { opacity: 1; }
+.trash-actions .btn { flex: 1; font-size: 11.5px; padding: 6px 8px; justify-content: center; }
+
+/* ---------- settings ---------- */
+.settings-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--color-border); margin-bottom: 20px; }
+.settings-tabs button {
+  padding: 10px 14px; border: none; background: none; font-size: 13px; color: var(--color-text-muted);
+  cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; transition: var(--transition-fast);
+}
+.settings-tabs button.active { color: var(--color-text); border-bottom-color: var(--color-accent); }
+.settings-tabs button:hover { color: var(--color-text); }
+.settings-panel { display: none; max-width: 560px; }
+.settings-panel.wide { max-width: 100%; }
+.settings-panel.active { display: block; }
+.settings-group { background: var(--color-surface); border-radius: var(--radius-card); padding: 16px 18px; margin-bottom: 16px; }
+.settings-group h4 { margin: 0 0 12px; font-size: 13px; }
+.field-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 13px; gap: 10px; }
+.field-col label { display: block; font-size: 12px; color: var(--color-text-muted); margin: 0 0 5px; }
+.field-col input, .field-col textarea { width: 100%; margin-bottom: 12px; }
+.radio-row { display: flex; gap: 14px; font-size: 13px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #2ecc71; display: inline-block; margin-right: 6px; }
+.preview-row { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+.preview-row .mini-avatar { width: 48px; height: 48px; border-radius: 50%; flex-shrink: 0; background: var(--color-surface-2); background-size: cover; background-position: center; }
+.preview-row .mini-banner { width: 110px; height: 48px; border-radius: 8px; flex-shrink: 0; background: var(--color-surface-2); background-size: cover; background-position: center; }
+.hint { font-size: 12px; color: var(--color-text-muted); margin: 0; }
+
+/* ---------- range sliders (tag graph physics) ---------- */
+.slider-wrap { display: flex; align-items: center; gap: 10px; flex: 1; max-width: 230px; }
+.slider-wrap input[type="range"] {
+  flex: 1; accent-color: var(--color-accent); cursor: pointer;
+}
+.slider-readout { width: 46px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
+/* Discovery search templates. The pattern is shown as selectable monospace text
+   so it can be copied and edited by hand, not only chosen from a list. */
+.template-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.template-row {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+}
+.template-row > div { flex: 1; min-width: 0; font-size: 12.5px; }
+.template-row code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px;
+  background: var(--color-surface-2); padding: 2px 6px; border-radius: 4px;
+  display: inline-block; margin: 3px 0; user-select: all; word-break: break-all;
+}
+.template-row .btn { flex-shrink: 0; font-size: 12px; padding: 6px 12px; }
+
+/* ---------- artwork versions ---------- */
+/* A card by border and padding, not by a different background fill — it
+   should read as its own section without looking like a different surface
+   floating inside the modal. */
+.version-block {
+  margin: 14px 0; border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.version-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.version-header-actions { display: flex; align-items: center; gap: 2px; }
+.version-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-top: 8px; }
+.version-cell {
+  position: relative; display: flex; flex-direction: column; gap: 4px; align-items: center;
+  flex-shrink: 0; width: 108px; padding: 6px; border-radius: 10px;
+  border: 1px solid var(--color-border);
+}
+.version-cell.canonical { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 8%, transparent); }
+.version-cell.selectable { cursor: pointer; transition: var(--transition-fast); }
+.version-cell.selectable:hover { border-color: var(--color-accent); background: var(--color-surface); }
+.version-cell img { width: 100%; height: 64px; object-fit: cover; border-radius: 6px; }
+.version-caption { font-size: 10px; color: var(--color-text-muted); text-align: center; line-height: 1.3; }
+.version-name {
+  margin: 0; width: 100%; font-size: 11px; text-align: center; line-height: 1.3;
+  overflow-wrap: break-word; cursor: pointer;
+}
+.version-name.placeholder { color: var(--color-text-muted); font-style: italic; }
+.version-name input { width: 100%; font-size: 11px; text-align: center; }
+.version-badge {
+  font-size: 10px; padding: 2px 8px; border-radius: 10px;
+  background: var(--color-accent); color: #fff;
+}
+.version-badge.role { background: var(--color-text-muted); }
+
+/* ---------- tag input with suggestions ---------- */
+.tag-input-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.tag-input-chips .chip { display: inline-flex; align-items: center; gap: 6px; }
+.tag-input-chips .chip button { background: none; border: none; color: inherit; cursor: pointer; padding: 0; font-size: 14px; line-height: 1; }
+.tag-input-field { position: relative; }
+.tag-input input { width: 100%; }
+.tag-input.inline { display: inline-block; min-width: 180px; vertical-align: middle; }
+
+.tag-suggestions {
+  display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 120;
+  background: var(--color-bg); border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-hover);
+  max-height: 240px; overflow-y: auto;
+}
+.tag-suggestions.open { display: block; }
+.tag-suggestion {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  font-size: 13px; cursor: pointer;
+}
+.tag-suggestion.active, .tag-suggestion:hover { background: var(--color-surface); }
+.tag-suggestion.create { color: var(--color-text-muted); font-style: italic; }
+.tag-suggestion-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag-suggestion-count { font-size: 11px; color: var(--color-text-muted); }
+.tag-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+/* ---------- upload dialog ---------- */
+.upload-preview {
+  display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  margin: 12px 0 4px; max-height: 140px; overflow: hidden;
+}
+.upload-preview img { width: 62px; height: 62px; object-fit: cover; border-radius: 8px; }
+.upload-more {
+  width: 62px; height: 62px; border-radius: 8px; background: var(--color-surface-2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; color: var(--color-text-muted);
+}
+
+/* ---------- drag-and-drop upload ---------- */
+.drop-overlay {
+  position: fixed; inset: 0; z-index: 300; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 14px;
+  background: color-mix(in srgb, var(--color-bg) 88%, transparent);
+  border: 3px dashed var(--color-accent); border-radius: var(--radius-card);
+  color: var(--color-text); font-size: 15px; font-weight: 600;
+  /* The overlay must not intercept the drop event it is announcing. */
+  pointer-events: none;
+  animation: drop-in 120ms ease-out;
+}
+.drop-overlay .micon svg { width: 42px; height: 42px; stroke: var(--color-accent); }
+@keyframes drop-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ---------- toasts ---------- */
+.toast-stack { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 200; align-items: center; }
+.toast {
+  background: var(--color-text); color: var(--color-bg); padding: 10px 16px; border-radius: 999px;
+  font-size: 13px; box-shadow: var(--shadow-hover); animation: toast-in 200ms ease-out;
+  max-width: 90vw;
+}
+.toast.error { background: #b3212e; color: #fff; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* ---------- responsive: real behaviour, not a preview toggle ----------
+   Masonry column count is never breakpoint-based — it falls out of
+   (container width / min card width) in masonry.ts, so the grid is already
+   correct at every viewport. The only thing that needs a breakpoint is moving
+   navigation to a thumb-reachable bottom bar. */
+.bottom-tabbar { display: none; }
+.bottom-tabbar button {
+  flex: 1; background: none; border: none; padding: 8px 0 10px; cursor: pointer;
+  color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.bottom-tabbar button span:last-child { font-size: 10px; }
+.bottom-tabbar button.active { color: var(--color-accent); }
+
+@media (max-width: 640px) {
+  /* The whole topbar, not just its nav links — the bottom tab bar already
+     covers navigation on mobile, and its own Settings/Add-images stand-ins
+     (the latter now also present as a button inside Settings) cover the rest,
+     so there's nothing left in the topbar mobile actually needs. */
+  header.topnav { display: none; }
+  main { padding: 12px 14px calc(84px + env(safe-area-inset-bottom)); }
+  .bottom-tabbar {
+    /* Fixed, not sticky: sticky only pins the bar once the page has scrolled
+       past it, so on a view shorter than the viewport (an empty board, a
+       fresh install) it sat wherever the content ended instead of at the
+       bottom of the screen. Fixed always anchors it to the viewport. */
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; background: var(--color-bg);
+    border-top: 1px solid var(--color-border); z-index: 55;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .modal { flex-direction: column; }
+  .modal .img-pane { min-height: 240px; flex: none; }
+  .modal .info-pane { flex: none; }
+
+  /* The pin modal specifically (see the `.item-modal` classes added in
+     itemModal.ts) becomes a bottom sheet: anchored to the bottom edge,
+     scrolling as one piece rather than image-fixed/info-scrolling, and
+     tall enough to nearly cover the screen. The image drops to a banner-like
+     strip up top instead of dominating — this view is for reading and
+     editing the metadata below it, not for looking at the picture, which is
+     already what opening the pin in the first place was for. */
+  .item-modal-backdrop { align-items: flex-end; padding: 0; }
+  .modal.item-modal {
+    width: 100%; max-width: 100%; height: auto; max-height: 92vh;
+    border-radius: 20px 20px 0 0;
+    overflow-y: auto; overflow-x: hidden;
+    /* Replaces the generic scale/fade `modal-pop-in` with an actual sheet
+       gesture — sliding up from off-screen reads as "this came from the
+       bottom edge" in a way a centered scale-in never would, which is the
+       whole point of a bottom sheet as a pattern. */
+    animation: sheet-slide-up 340ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes sheet-slide-up {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  /* A small grab-handle, the standard "this is a sheet" affordance — sits
+     over the image, so it gets the same semi-opaque treatment the close
+     button already uses there for contrast against whatever photo is behind it. */
+  .modal.item-modal::before {
+    content: ""; position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    width: 36px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.85);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); z-index: 6;
+  }
+  .modal.item-modal .img-pane {
+    flex: none; height: 200px; min-height: 0; overflow: hidden; padding: 0;
+  }
+  .modal.item-modal .img-pane img {
+    width: 100%; height: 100%; max-width: none; max-height: none; object-fit: cover;
+  }
+  .modal.item-modal .info-pane {
+    flex: none; overflow-y: visible; padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  }
+
+  .board-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .drawer { width: 100%; right: -100%; }
+
+  /* Icon-only controls need a real fingertip target on touch even where the
+     visual glyph stays small — 44pt (iOS)/48dp (Material) is the commonly
+     cited minimum; sized comfortably for a mouse cursor is not the same as
+     reliable for a fingertip. Padding grows the hit area without growing the
+     icon itself. */
+  .icon-btn, .kebab-btn, .save-btn.icon-only { min-width: 44px; min-height: 44px; }
+}
+
+/* ---------- themed scrollbars ----------
+   A default OS scrollbar sitting inside an otherwise carefully themed dark UI
+   is a small but noticeable seam. `scrollbar-color` covers Firefox; the
+   `::-webkit-scrollbar` rules cover Chrome/Safari/Edge, which don't support
+   the standard property. Both read the same custom properties every other
+   themed surface uses, so they follow light/dark automatically. */
+:root { scrollbar-color: var(--color-border) transparent; }
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-border); border-radius: 8px; border: 3px solid var(--color-bg);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
+
+/* ---------- shimmer on the dominant-colour placeholder ----------
+   The reserved box (see card.ts) already shows the dominant colour while the
+   real thumbnail loads; a static block sitting still reads as "stuck", a
+   subtle shimmer reads as "arriving". Removed the instant the image actually
+   finishes loading, via the `loaded` class card.ts could add — until then it
+   plays continuously since there's no other loaded-signal available purely
+   in CSS for a plain `<img>`. */
+.card .art {
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.12) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: art-shimmer 1.6s ease-in-out infinite;
+}
+.card .art.loaded { animation: none; background-image: none; }
+@keyframes art-shimmer {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card .art { animation: none; background-image: none; }
+}
+
+/* ---------- items leaving a filtered/bulk-actioned view ----------
+   Fade + shrink instead of an instant snap when a card is removed (Grid.
+   removeItem) — reuses `--transition-fast` rather than a one-off duration. */
+.card.card-leaving {
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  opacity: 0; transform: scale(0.92); pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card.card-leaving { transition: none; }
+}
+
+/* ---------- marquee / rubber-band selection ---------- */
+.marquee-box {
+  position: absolute; border: 1.5px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border-radius: 4px; pointer-events: none; z-index: 5;
+}
+.card.marquee-hover { outline: 2px dashed var(--color-accent); outline-offset: -2px; }
+
+/* ---------- near-duplicate review (Settings → Tags → Cleanup) ---------- */
+.dupe-pair {
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  padding: 10px; margin-bottom: 10px;
+}
+.dupe-pair-thumbs { display: flex; gap: 8px; }
+.dupe-pair-thumbs img {
+  width: 50%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; cursor: pointer;
+}
+.dupe-pair .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.dupe-pair .row-actions button { font-size: 12px; padding: 6px 10px; }
+
+/* ---------- connectivity banner ----------
+   Shown when the backend stops responding mid-session — a self-hosted app
+   has no support team to notice an outage for the person using it, so the
+   UI has to say so itself rather than silently stop working. */
+.connectivity-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 300;
+  background: #b3212e; color: #fff; text-align: center; font-size: 13px;
+  padding: 8px 16px; transform: translateY(-100%); transition: transform var(--transition-fast);
+}
+.connectivity-banner.visible { transform: translateY(0); }
+
+/* ---------- one-time PWA install nudge ---------- */
+.install-tip-banner {
+  position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 250; background: var(--color-accent); color: #fff; border-radius: var(--radius-sm);
+  padding: 10px 14px; font-size: 13px; display: flex; align-items: center;
+  justify-content: space-between; gap: 12px; box-shadow: var(--shadow-hover);
+}
+
+/* ---------- styled error view (404 / boot failure) ---------- */
+.error-view {
+  min-height: 60vh; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; text-align: center; gap: 10px; padding: 40px 20px;
+}
+.error-view .micon svg { width: 48px; height: 48px; stroke: var(--color-text-muted); }
+.error-view h2 { margin: 0; }
+.error-view p { color: var(--color-text-muted); max-width: 420px; margin: 0; }
+
+/* ---------- toast with an action (Undo) ---------- */
+.toast-action {
+  margin-left: 10px; background: none; border: none; color: var(--color-accent);
+  font-weight: 600; cursor: pointer; padding: 0; font-size: inherit;
+}
+
+/* ---------- printable board index ----------
+   A `@media print` stylesheet rather than a real PDF generator: cheap, and
+   sufficient unless it turns out not to be. Everything chrome-like (nav,
+   buttons, the search bar, drag handles) is hidden; the board's items print
+   as a simple reference sheet — thumbnail plus citation metadata — rather
+   than whatever the interactive layout happens to look like. */
+@media print {
+  header.topnav, nav.views, .bulk-toolbar, .board-header .row-actions,
+  .kebab-wrap, .search-bar, .drop-overlay, .connectivity-banner,
+  .footer, button:not(.print-keep) {
+    display: none !important;
+  }
+  body, .view { background: #fff !important; color: #000 !important; }
+  .masonry { display: block !important; position: static !important; }
+  .masonry.print-citations .card {
+    position: static !important; display: flex !important; gap: 12px;
+    width: 100% !important; height: auto !important; break-inside: avoid;
+    box-shadow: none !important; margin-bottom: 12px; page-break-inside: avoid;
+  }
+  .masonry.print-citations .card .art { width: 120px !important; height: 120px !important; flex-shrink: 0; }
+  .masonry.print-citations .card .overlay, .masonry.print-citations .kebab-wrap { display: none !important; }
+  .print-citation-block { display: block !important; font-size: 12px; }
+}
+.print-citation-block { display: none; }

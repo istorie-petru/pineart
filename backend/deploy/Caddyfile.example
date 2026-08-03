@@ -1,0 +1,23 @@
+# Reverse proxy: serves the built frontend as static files and forwards /api to
+# the backend. FastAPI never serves the frontend itself — one less thing for the
+# app process to get wrong, and Caddy is better at static files anyway.
+
+artboard.example.com {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	handle {
+		root * /opt/artboard/frontend/dist
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Uploads are capped in the app too (ARTBOARD_MAX_UPLOAD_BYTES); this stops a
+	# oversized body before it reaches Python at all.
+	request_body {
+		max_size 32MB
+	}
+}

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the Art Board trash purge daily
+
+[Timer]
+OnCalendar=daily
+# Runs the purge on next boot if the machine was off when it was due — an LXC
+# that is shut down overnight would otherwise never purge.
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # Backend (pip). A self-hosted app whose dependencies never get patched is a
+  # slow-growing security liability; this costs almost nothing to turn on.
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+
+  # Frontend (npm).
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+
+  # The workflow files themselves.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

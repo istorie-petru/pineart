@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#fafaf8" />
+<link rel="manifest" href="/manifest.json" />
+<link rel="icon" href="/favicon.png" type="image/png" />
+<title>Pineart</title>
+<script>
+  // Theme is applied before first paint, from localStorage rather than from the
+  // settings API: waiting for a fetch would guarantee a flash of the wrong theme
+  // on every load. The API remains the source of truth and overwrites this cache
+  // once settings arrive.
+  (function () {
+    try {
+      var stored = localStorage.getItem("artboard.theme") || "system";
+      var dark =
+        stored === "dark" ||
+        (stored === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+      var accent = localStorage.getItem("artboard.accent");
+      if (accent) document.documentElement.style.setProperty("--color-accent", accent);
+    } catch (e) {
+      document.documentElement.dataset.theme = "light";
+    }
+  })();
+</script>
+</head>
+<body>
+<header class="topnav">
+  <div class="logo">Pineart</div>
+  <nav class="views" id="topNav">
+    <button data-view="feed" hidden>Discover</button>
+    <button data-view="boards" data-sub="unorganized">Feed</button>
+    <button data-view="boards" data-sub="organized" class="active">Boards</button>
+  </nav>
+  <div class="nav-right">
+    <button class="icon-btn" id="settingsBtn" data-view="settings" title="Settings" aria-label="Settings"></button>
+    <!-- Adding images lives only in Settings now — these two stay here as the
+         shared hidden inputs behind that button (and drag-and-drop), not tied
+         to any topbar control of their own. -->
+    <input type="file" id="uploadInput" accept="image/*" multiple hidden />
+    <input type="file" id="folderInput" accept="image/*" multiple hidden webkitdirectory />
+  </div>
+</header>
+
+<main id="app"></main>
+
+<nav class="bottom-tabbar" id="bottomTabbar"></nav>
+
+<div class="toast-stack" id="toastStack"></div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

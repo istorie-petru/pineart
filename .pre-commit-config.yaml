@@ -1,0 +1,14 @@
+# Pre-commit hooks. Install once with:
+#   pip install pre-commit && pre-commit install
+#
+# The secret-scanning hook is cheap insurance on top of .gitignore discipline
+# (advance.md §9): real user data and secrets should never be *able* to end
+# up committed, not just "shouldn't". `detect-secrets` catches the case
+# .gitignore can't — a secret pasted directly into a tracked file.
+repos:
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ["--baseline", ".secrets.baseline"]
+        exclude: package-lock.json
