@@ -195,42 +195,75 @@ past the retention window (30 days by default) and removes the files; `?force=tr
 empties it immediately. `python -m app.cli purge` is the same operation for the
 systemd timer.
 
-## Deployment (native, systemd)
+## Getting started
 
-`deploy/artboard-ctl` is the single script for this: no manual `git pull`,
-venv rebuild, or unit copying. It self-installs to `/usr/local/bin`, deploys
-each release into its own directory under `/srv/artboard/releases/`, and
-atomically swaps a `current` symlink — both the systemd unit's
-`WorkingDirectory` and Caddy's static root point through that symlink, so a
-deploy updates backend and frontend together with one atomic operation.
+There are two different things people mean by "getting started" here — try
+it out on your own laptop first, or install it for real on a server you'll
+actually use day to day. Pick one.
+
+### Just trying it out (your own computer, nothing permanent)
+
+See *Running it* above — `./run.sh` from the repository root (or
+`./scripts/dev.sh` here for backend-only work) is exactly this: it creates
+the venv, installs both dependency sets, migrates, and starts everything
+with no permanent install or access control beyond the setup token. Nothing
+is written outside `data/`; delete the checkout and nothing is left behind.
+Not meant for exposing to a network — that's the next section.
+
+### Installing it for real (a server, always-on)
+
+**What you need first:**
+
+- A **Debian 12** machine you have root/`sudo` access to — a spare PC, a
+  Raspberry Pi running Debian, a $5/mo VPS, or a VM/LXC container in
+  something like Proxmox. Not Windows or macOS. No Docker required (and
+  none used) — it installs directly as a system service.
+- That machine reachable over SSH from the computer you're typing commands
+  on.
+- A reverse proxy in front of it that terminates TLS — Caddy or nginx.
+  `deploy/Caddyfile.example` is a working starting point for Caddy; neither
+  proxy is installed or managed by the deploy script below, so put one in
+  place (and decide how you'll reach it — home network, a VPN like
+  [Tailscale](https://tailscale.com/), or publicly) before or after the
+  install, in either order.
+
+The app deploys as a systemd service via
+[`backend/deploy/artboard-ctl`](deploy/artboard-ctl). Each deploy builds a
+fresh, isolated release (backend venv + frontend bundle) and atomically swaps
+a symlink over to it; nothing is ever edited in place, and a deploy that
+fails its own `/api/health` check rolls itself back automatically — the site
+never goes down mid-upgrade. It also takes an online `sqlite3 .backup` of
+`db.sqlite3` before every migration, since a code rollback alone can't undo
+a bad one — restore the printed backup path by hand if that ever happens.
+
+#### First install (fresh host)
+
+SSH into the server, then:
 
 ```bash
-# fresh LXC, first install
-git clone <repo-url> /tmp/bootstrap
+git clone https://github.com/istorie-petru/pineart.git /tmp/bootstrap
 sudo /tmp/bootstrap/backend/deploy/artboard-ctl install
-rm -rf /tmp/bootstrap
+rm -rf /tmp/bootstrap   # install already copied itself to /usr/local/bin
+```
 
-# day to day, once installed
+This creates the `artboard` system user, lays out `/srv/artboard/`, builds
+and starts the first release, and enables the daily trash-purge timer. Point
+your reverse proxy at `127.0.0.1:8000` for `/api/*` and
+`/srv/artboard/current/frontend/dist` for everything else (see
+`deploy/Caddyfile.example`), and set `ARTBOARD_SECURE_COOKIES=true` in
+`/srv/artboard/shared/.env` — already the default there — once TLS is live.
+
+#### Day to day, once installed
+
+```bash
 sudo artboard-ctl update    # deploy latest main: build, migrate, swap, health-check, auto-rollback
 sudo artboard-ctl remove    # tear down (destructive, confirms)
 ```
 
-`update` takes an online `sqlite3 .backup` of `db.sqlite3` before running
-Alembic migrations, then runs them, swaps the symlink, restarts the service,
-and polls `/api/health`. A failed health check rolls the symlink back to the
-previous release and restarts — but that only undoes *code*; if a migration
-itself is the problem, restore the printed backup path over
-`/srv/artboard/shared/data/db.sqlite3` by hand.
-
-The app binds to `127.0.0.1:8000`; Caddy or nginx terminates TLS and serves the
-static frontend (`deploy/Caddyfile.example`, pointed at
-`/srv/artboard/current/frontend/dist`). SearXNG, if used, runs as its own
-service bound to loopback and is reachable only through this backend's
-`/api/discover` proxy. Caddy itself is not managed by `artboard-ctl`.
-
-Config lives in `/srv/artboard/shared/.env`, generated on first install with
-`ARTBOARD_SECURE_COOKIES=true` already set (Caddy terminates TLS in front of
-it) — edit it and `systemctl restart artboard` to change anything.
+`update` always deploys the tip of `main`, not a specific tag — the
+pre-migration backup is the safety net, not gating deploys behind a release.
+Config lives in `/srv/artboard/shared/.env`; edit it and
+`systemctl restart artboard` to change anything.
 
 ## Deployment (Docker Compose)
 
