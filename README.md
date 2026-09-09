@@ -53,7 +53,7 @@ The backend is complete: ingest with content and perceptual dedup, WebP derivati
 
 The frontend covers every view in the architecture document: the Boards landing view with its profile header and link pills, the Unorganized grid with the search-bar-as-filter-state, board detail with drag-reorder, the item modal with recommendations and keyboard navigation, the crop tool for avatar/banner/cover/freeform, all seven Settings tabs including the d3-force tag graph, and the Feed — which stays hidden until Discovery is configured.
 
-Both deployment paths from §9 exist: systemd units in `backend/deploy/`, and Docker Compose at the repository root.
+Both deployment paths from §9 exist: `backend/deploy/artboard-ctl` (native, systemd, atomic release/symlink deploys) and Docker Compose at the repository root.
 
 Authentication is an argon2 password hash with a server-side session cookie, applied to every route except `/api/auth/*` and `/api/health`. First-run setup is gated by a one-time token printed to the server log, so a freshly started instance cannot be claimed by whoever reaches the port first. Set `ARTBOARD_SECURE_COOKIES=true` behind TLS.
 
@@ -77,7 +77,7 @@ That loads the production bundle in jsdom against the live API and asserts the a
 ## Layout
 
 ```
-backend/            FastAPI app, Alembic migrations, tests, systemd units, Dockerfile
+backend/            FastAPI app, Alembic migrations, tests, deploy/artboard-ctl, Dockerfile
 frontend/           Vite + TypeScript app; src/views are the top-level screens
 searxng/            Optional SearXNG config for the discovery profile
 docker-compose.yml  The §9b deployment path

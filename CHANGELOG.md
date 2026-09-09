@@ -7,6 +7,15 @@ faith (see `advance.md` §3). Format loosely follows
 
 ## [Unreleased]
 
+### Changed
+- Replaced `backend/deploy/deploy.sh` (git-checkout-a-tag-in-place) and the
+  tracked `artboard.service`/`artboard-purge.{service,timer}` units with
+  `backend/deploy/artboard-ctl`: a self-installing `install`/`update`/`remove`
+  script that deploys the tip of `main` into atomic release/symlink
+  directories under `/srv/artboard/`, takes an online `sqlite3 .backup`
+  before every migration, and auto-rolls-back code on a failed health check.
+  `Caddyfile.example` now points at `/srv/artboard/current/frontend/dist`.
+
 ### Added
 - Atomic file writes for stored images (temp file + `os.replace`), so a crash
   mid-write can no longer leave a half-written original at its real path.

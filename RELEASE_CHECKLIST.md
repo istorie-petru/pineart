@@ -23,6 +23,8 @@ release-engineering pipeline.
       `git status` and a manual glance at the diff, on top of whatever the
       pre-commit secret-scanning hook already catches.
 - [ ] Tag the release: `git tag -a vX.Y.Z -m "vX.Y.Z" && git push --tags`.
-- [ ] Deploy with `backend/deploy/deploy.sh vX.Y.Z` on the actual box, not by
-      hand — the backup-before-migrate step only exists if that script is
-      the thing that runs.
+- [ ] Push to `main`, then deploy with `sudo artboard-ctl update` on the
+      actual box, not by hand — the backup-before-migrate step only exists
+      if that script is the thing that runs. `update` always deploys the
+      tip of `main`, so the tag above is a changelog/version record, not a
+      deploy target — make sure `main` is what you want live before running it.

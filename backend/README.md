@@ -197,22 +197,40 @@ systemd timer.
 
 ## Deployment (native, systemd)
 
-Layout matches the architecture document: the app in `/opt/artboard/backend` with
-its venv, the built frontend in `/opt/artboard/frontend/dist`, data in
-`/opt/artboard/data`. Copy the units from `deploy/`:
+`deploy/artboard-ctl` is the single script for this: no manual `git pull`,
+venv rebuild, or unit copying. It self-installs to `/usr/local/bin`, deploys
+each release into its own directory under `/srv/artboard/releases/`, and
+atomically swaps a `current` symlink — both the systemd unit's
+`WorkingDirectory` and Caddy's static root point through that symlink, so a
+deploy updates backend and frontend together with one atomic operation.
 
 ```bash
-sudo cp deploy/artboard.service deploy/artboard-purge.{service,timer} /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now artboard.service artboard-purge.timer
+# fresh LXC, first install
+git clone <repo-url> /tmp/bootstrap
+sudo /tmp/bootstrap/backend/deploy/artboard-ctl install
+rm -rf /tmp/bootstrap
+
+# day to day, once installed
+sudo artboard-ctl update    # deploy latest main: build, migrate, swap, health-check, auto-rollback
+sudo artboard-ctl remove    # tear down (destructive, confirms)
 ```
 
-The app binds to `127.0.0.1:8000`; Caddy or nginx terminates TLS and serves the
-static frontend (`deploy/Caddyfile.example`). SearXNG, if used, runs as its own
-service bound to loopback and is reachable only through this backend's
-`/api/discover` proxy.
+`update` takes an online `sqlite3 .backup` of `db.sqlite3` before running
+Alembic migrations, then runs them, swaps the symlink, restarts the service,
+and polls `/api/health`. A failed health check rolls the symlink back to the
+previous release and restarts — but that only undoes *code*; if a migration
+itself is the problem, restore the printed backup path over
+`/srv/artboard/shared/data/db.sqlite3` by hand.
 
-Add `ARTBOARD_SECURE_COOKIES=true` to `/opt/artboard/.env` once TLS is in front.
+The app binds to `127.0.0.1:8000`; Caddy or nginx terminates TLS and serves the
+static frontend (`deploy/Caddyfile.example`, pointed at
+`/srv/artboard/current/frontend/dist`). SearXNG, if used, runs as its own
+service bound to loopback and is reachable only through this backend's
+`/api/discover` proxy. Caddy itself is not managed by `artboard-ctl`.
+
+Config lives in `/srv/artboard/shared/.env`, generated on first install with
+`ARTBOARD_SECURE_COOKIES=true` already set (Caddy terminates TLS in front of
+it) — edit it and `systemctl restart artboard` to change anything.
 
 ## Deployment (Docker Compose)
 

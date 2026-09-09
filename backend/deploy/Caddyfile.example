@@ -10,7 +10,10 @@ artboard.example.com {
 	}
 
 	handle {
-		root * /opt/artboard/frontend/dist
+		# /srv/artboard/current is the symlink artboard-ctl atomically swaps
+		# on every deploy -- Caddy re-reads through it on every request, so
+		# a deploy updates the served frontend with no reload needed here.
+		root * /srv/artboard/current/frontend/dist
 		try_files {path} /index.html
 		file_server
 	}
