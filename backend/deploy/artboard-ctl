@@ -814,7 +814,14 @@ cmd_update() {
     set -euo pipefail
     export HOME='${SHARED_DIR}'
     cd '${release_dir}/frontend'
-    npm ci --silent
+    # --include=dev overrides any system-wide NODE_ENV=production or
+    # npmrc 'production=true'/'omit=dev' that would otherwise make npm skip
+    # devDependencies -- vite and typescript live there, and unlike a
+    # typical app, this deploy needs vite at RUNTIME too
+    # (artboard-frontend.service runs 'vite preview' straight out of
+    # node_modules/.bin, not just at build time), so silently getting a
+    # production-only install here is a hard failure, not a smaller one.
+    npm ci --silent --include=dev
     npm run build --silent
   "
 
@@ -825,6 +832,21 @@ cmd_update() {
   fi
   if [ ! -f "${release_dir}/frontend/dist/index.html" ]; then
     err "Frontend build did not produce ${release_dir}/frontend/dist/index.html -- aborting, nothing swapped."
+    rm -rf "$release_dir"
+    exit 1
+  fi
+  # Checked separately from dist/index.html above: a build can succeed via
+  # some OTHER vite/tsc on PATH (a global install, a leftover from a
+  # different project) even when the LOCAL node_modules/.bin/vite this
+  # release's systemd unit actually execs is missing -- dist/index.html
+  # existing does not prove that. Catching it here, before the swap, is the
+  # difference between "aborting, nothing swapped" and a crash-looping
+  # service with no previous release to roll back to.
+  if [ ! -x "${release_dir}/frontend/node_modules/.bin/vite" ]; then
+    err "node_modules/.bin/vite is missing after 'npm ci --include=dev' -- aborting, nothing swapped."
+    err "Something on this host is forcing npm to skip devDependencies despite --include=dev."
+    err "Check: echo \$NODE_ENV, and 'npm config get omit'/'npm config get production'"
+    err "as the ${APP_USER} user, and /etc/npmrc / ~${APP_USER}/.npmrc for a stray 'production=true'."
     rm -rf "$release_dir"
     exit 1
   fi
@@ -868,14 +890,27 @@ cmd_update() {
       atomic_symlink "$old_current" "$CURRENT_LINK"
       systemctl restart "${APP_NAME}.service" "${APP_NAME}-frontend.service"
       err "Rolled back to previous release ($(basename "$old_current"))."
+      # Only safe to delete now: CURRENT_LINK no longer points at it.
+      rm -rf "$release_dir"
     else
+      # CURRENT_LINK was already swapped to $release_dir earlier in this
+      # function (the "Swapping current -> ..." step, before the health
+      # check), and there is no previous release to swap back to -- so
+      # CURRENT_LINK is still pointing AT $release_dir right now. Deleting
+      # it here (as this script used to, unconditionally) would leave
+      # CURRENT_LINK dangling at a directory that no longer exists, turning
+      # a failed-but-inspectable first deploy into a crash-looping service
+      # with nothing left to debug. Leave it in place instead.
       err "No previous release to roll back to (this was the first deploy)."
+      err "Leaving the failed release at ${release_dir} in place for inspection --"
+      err "${CURRENT_LINK} still points at it. Check 'journalctl -u ${APP_NAME}' and"
+      err "'journalctl -u ${APP_NAME}-frontend', fix the underlying issue, then"
+      err "re-run 'artboard-ctl update' (it builds a new release regardless)."
     fi
     if [ -n "$backup_path" ]; then
       err "This does NOT undo a migration that already ran against ${DB_FILE}."
       err "If the migration itself is the problem, restore it: sqlite3 ${DB_FILE} \".restore '${backup_path}'\""
     fi
-    rm -rf "$release_dir"
     exit 1
   fi
 }
