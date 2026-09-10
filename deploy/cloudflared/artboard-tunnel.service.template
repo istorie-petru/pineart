@@ -1,0 +1,36 @@
+# Rendered by install-cloudflared.sh into
+# /etc/systemd/system/artboard-tunnel.service. Deliberately NOT the unit
+# `cloudflared service install` would generate -- that one runs as root with
+# no sandboxing. This one runs as a dedicated, unprivileged system user and
+# can only read its own config directory.
+[Unit]
+Description=Cloudflare Tunnel for Art Board (Pineart)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cloudflared
+Group=cloudflared
+ExecStart=/usr/local/bin/cloudflared --config /etc/cloudflared/config.yml tunnel run
+Restart=on-failure
+RestartSec=5
+
+# Hardening. This process has one job -- dial out to Cloudflare's edge and
+# forward to 127.0.0.1 -- so it needs no write access anywhere and no
+# listening socket of its own.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/etc/cloudflared
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

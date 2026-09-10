@@ -220,21 +220,28 @@ Not meant for exposing to a network — that's the next section.
   none used) — it installs directly as a system service.
 - That machine reachable over SSH from the computer you're typing commands
   on.
-- A reverse proxy in front of it that terminates TLS — Caddy or nginx.
-  `deploy/Caddyfile.example` is a working starting point for Caddy; neither
-  proxy is installed or managed by the deploy script below, so put one in
-  place (and decide how you'll reach it — home network, a VPN like
-  [Tailscale](https://tailscale.com/), or publicly) before or after the
-  install, in either order.
+- Something in front of it that terminates TLS and forwards to
+  `127.0.0.1:4173` — either a reverse proxy (`deploy/Caddyfile.example` is a
+  working starting point for Caddy) or a Cloudflare Tunnel (see
+  [`../deploy/README.md`](../deploy/README.md) for the no-inbound-port,
+  no-certificate path). Neither is installed or managed by
+  `artboard-ctl` itself, so set one up (before or after the install, in
+  either order) and decide how you'll reach it — home network, a VPN like
+  [Tailscale](https://tailscale.com/), or publicly.
 
-The app deploys as a systemd service via
-[`backend/deploy/artboard-ctl`](deploy/artboard-ctl). Each deploy builds a
-fresh, isolated release (backend venv + frontend bundle) and atomically swaps
-a symlink over to it; nothing is ever edited in place, and a deploy that
-fails its own `/api/health` check rolls itself back automatically — the site
-never goes down mid-upgrade. It also takes an online `sqlite3 .backup` of
-`db.sqlite3` before every migration, since a code rollback alone can't undo
-a bad one — restore the printed backup path by hand if that ever happens.
+The app deploys as two systemd services via
+[`backend/deploy/artboard-ctl`](deploy/artboard-ctl): `artboard.service`
+(uvicorn, `127.0.0.1:8000`) and `artboard-frontend.service` (`vite preview`
+serving the built bundle, `127.0.0.1:4173` — it already proxies `/api` to
+the backend itself, so whatever sits in front of this box only ever needs to
+reach one port). Each deploy builds a fresh, isolated release (backend venv
++ frontend bundle, `npm ci` including devDependencies since `vite preview`
+needs `vite` itself at runtime) and atomically swaps a symlink over to it;
+nothing is ever edited in place, and a deploy that fails either service's
+health check rolls both services back automatically — the site never goes
+down mid-upgrade. It also takes an online `sqlite3 .backup` of `db.sqlite3`
+before every migration, since a code rollback alone can't undo a bad one —
+restore the printed backup path by hand if that ever happens.
 
 #### First install (fresh host)
 
@@ -247,11 +254,16 @@ rm -rf /tmp/bootstrap   # install already copied itself to /usr/local/bin
 ```
 
 This creates the `artboard` system user, lays out `/srv/artboard/`, builds
-and starts the first release, and enables the daily trash-purge timer. Point
-your reverse proxy at `127.0.0.1:8000` for `/api/*` and
-`/srv/artboard/current/frontend/dist` for everything else (see
-`deploy/Caddyfile.example`), and set `ARTBOARD_SECURE_COOKIES=true` in
-`/srv/artboard/shared/.env` — already the default there — once TLS is live.
+and starts the first release (both services), and enables the daily
+trash-purge timer. Point whatever's in front of this box at
+`127.0.0.1:4173` — see `deploy/Caddyfile.example` for Caddy or
+`../deploy/README.md` for the Cloudflare Tunnel path — and set
+`ARTBOARD_SECURE_COOKIES=true` in `/srv/artboard/shared/.env` — already the
+default there — once TLS is live. If your public hostname is set (either
+path), also uncomment and set `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` in
+that same `.env` file to that hostname and `systemctl restart
+artboard-frontend` — `vite preview` rejects any `Host` header it doesn't
+recognize by default, and answers everything else with a 403.
 
 #### Day to day, once installed
 
@@ -263,7 +275,25 @@ sudo artboard-ctl remove    # tear down (destructive, confirms)
 `update` always deploys the tip of `main`, not a specific tag — the
 pre-migration backup is the safety net, not gating deploys behind a release.
 Config lives in `/srv/artboard/shared/.env`; edit it and
-`systemctl restart artboard` to change anything.
+`systemctl restart artboard artboard-frontend` to change anything.
+
+#### Discovery (SearXNG), natively
+
+```bash
+sudo artboard-ctl install --discovery   # first install, or add it later the same way
+```
+
+Sets up SearXNG the same way [its own non-Docker install docs](https://docs.searxng.org/admin/installation-searxng.html)
+do: a dedicated `searxng` system user, a git clone of upstream SearXNG in its
+own venv (entirely separate from the app's backend venv), served by `uwsgi`
+bound to `127.0.0.1:8888` as `artboard-searxng.service`. No Docker, no nginx,
+no Redis/Valkey — this app's `searxng/settings.yml.example` already runs with
+`limiter: false`, so there's no rate-limiter dependency to stand up either.
+`ARTBOARD_SEARXNG_URL` is set in `/srv/artboard/shared/.env` automatically;
+turn Discovery on under Settings → Discovery in the app afterwards, same as
+locally. Once enabled, every later `sudo artboard-ctl update` keeps SearXNG's
+source and dependencies current too — you don't need to pass `--discovery`
+again. `sudo artboard-ctl remove` tears it down along with everything else.
 
 ## Deployment (Docker Compose)
 

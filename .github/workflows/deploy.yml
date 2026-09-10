@@ -1,0 +1,29 @@
+name: Deploy
+
+# Thin trigger only. Every actual deploy step -- clone, build, migrate,
+# health-check, atomic swap, auto-rollback -- lives in
+# backend/deploy/artboard-ctl on the server, not here. That's deliberate:
+# it's the same command a human runs by hand (see deploy/README.md), so
+# there is exactly one place deploy logic can drift, and running this
+# workflow is never different from SSHing in and typing the command
+# yourself.
+#
+# Fires on every push to main, independent of ci.yml. This does not gate on
+# CI passing first -- if you want that ordering, branch protection on main
+# (require ci.yml's checks before merge) is the place to enforce it, not a
+# second workflow-completion trigger here.
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH and update
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: sudo /usr/local/bin/artboard-ctl update

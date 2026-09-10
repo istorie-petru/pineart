@@ -8,32 +8,62 @@
 #
 # Bootstrap (fresh LXC, first install):
 #   git clone https://github.com/istorie-petru/pineart.git /tmp/bootstrap
-#   sudo /tmp/bootstrap/backend/deploy/artboard-ctl install
+#   sudo /tmp/bootstrap/backend/deploy/artboard-ctl install [--discovery]
 #   rm -rf /tmp/bootstrap   # install already copied itself to /usr/local/bin
 #
 # Day to day, once installed:
 #   sudo artboard-ctl update    # deploy latest main, atomic swap, auto-rollback
 #   sudo artboard-ctl remove    # tear down (destructive, confirms)
 #
+# `install --discovery` additionally sets up SearXNG natively (uwsgi, no
+# Docker) for the Feed -- see "Discovery / SearXNG" below. Once enabled,
+# every later `update` keeps it current too; you don't need to pass
+# `--discovery` again. Adding it after the fact is just
+# `artboard-ctl install --discovery` a second time -- everything else
+# `install` does is already idempotent.
+#
 # Layout:
 #   /srv/artboard/releases/release_<timestamp>_<hash>/   one per deploy, built
-#     under it: backend/.venv (pip) and frontend/dist (vite build)
+#     under it: backend/.venv (pip) and frontend/dist + node_modules (npm ci,
+#     including devDependencies -- `vite preview` at runtime needs vite itself)
 #   /srv/artboard/current -> releases/<latest>            atomically swapped
 #   /srv/artboard/previous -> releases/<prior>             swap target for rollback
 #   /srv/artboard/shared/.env                              persistent config (EnvironmentFile)
 #   /srv/artboard/shared/repo_url                          persisted origin URL (see below)
 #   /srv/artboard/shared/data/                             db.sqlite3 + images (survives swaps)
 #   /srv/artboard/shared/backups/                           pre-migration db.sqlite3 snapshots
+#   /srv/artboard/shared/discovery_enabled                 marker: --discovery was set up (see below)
+#   /srv/artboard/shared/searxng/                          SearXNG source clone + its own venv
+#   /srv/artboard/shared/searxng-settings.yml               SearXNG config (generated once)
+#   /srv/artboard/shared/searxng-uwsgi.ini                  regenerated on every install/update
+#
+# Discovery / SearXNG:
+#   `--discovery` installs SearXNG the same way its own docs recommend for a
+#   non-Docker setup (docs.searxng.org/admin/installation-searxng.html): a
+#   dedicated `searxng` system user, a git clone + its own venv (kept
+#   entirely separate from the app's own backend venv), served via uwsgi's
+#   built-in HTTP router bound to 127.0.0.1:8888 -- no nginx/Docker/Redis in
+#   front of it, since this app's searxng/settings.yml.example already runs
+#   with `limiter: false` (no bot-protection rate limiter, so no Valkey/Redis
+#   dependency either). It is not part of the app's atomic release/rollback
+#   lifecycle -- like a database, a bad SearXNG update restarts SearXNG, not
+#   the app, and a bad app deploy never touches SearXNG. `ARTBOARD_SEARXNG_URL`
+#   is set in shared/.env automatically; turn Discovery on under
+#   Settings -> Discovery in the app afterwards, the same as locally.
 #
 # `update` deploys whatever is on the tip of GIT_BRANCH (main), not a specific
 # tag -- unlike a hand-run `git checkout vX.Y.Z`, this is deliberate: the
 # safety net for a bad migration is the pre-migration backup this script
 # always takes (see cmd_update), not gating deploys behind a tag.
 #
-# The frontend is *not* systemd-managed: Caddy (backend/deploy/Caddyfile.example)
-# serves ${CURRENT_LINK}/frontend/dist directly and re-reads that path on every
-# request, so the atomic symlink swap below updates the frontend too, with no
-# separate frontend service to restart.
+# The frontend runs as its own systemd unit (artboard-frontend.service):
+# `vite preview` serving the built ${CURRENT_LINK}/frontend/dist, bound to
+# loopback like the backend. vite.config.ts already proxies /api to the
+# backend for this exact preview mode (the same config `run.sh --prod` uses
+# locally), so whatever sits in front of this box -- Caddy, nginx, a
+# Cloudflare Tunnel, anything that can reverse-proxy one port -- only needs
+# to point at 127.0.0.1:4173. No path-based routing rules to maintain
+# anywhere else.
 #
 # Repo URL detection:
 #   `install` needs a repo to clone. It never hardcodes one; instead:
@@ -49,11 +79,12 @@
 #   git context of its own) know where to clone from without re-detecting.
 set -euo pipefail
 
-# --- constants (match backend/app/config.py, artboard.service, Caddyfile.example) ---
+# --- constants (match backend/app/config.py, frontend/vite.config.ts, Caddyfile.example) ---
 APP_NAME="artboard"
 APP_USER="artboard"
 GIT_BRANCH="main"
 TARGET_PORT=8000
+FRONTEND_PORT=4173
 HEALTH_PATH="/api/health"
 KEEP_RELEASES=5
 KEEP_BACKUPS=5
@@ -70,8 +101,25 @@ PREVIOUS_LINK="${BASE_DIR}/previous"
 ENV_FILE="${SHARED_DIR}/.env"
 REPO_URL_FILE="${SHARED_DIR}/repo_url"
 UNIT_FILE="/etc/systemd/system/${APP_NAME}.service"
+FRONTEND_UNIT_FILE="/etc/systemd/system/${APP_NAME}-frontend.service"
 PURGE_SERVICE_FILE="/etc/systemd/system/${APP_NAME}-purge.service"
 PURGE_TIMER_FILE="/etc/systemd/system/${APP_NAME}-purge.timer"
+
+# --- Discovery / SearXNG constants (match run.sh's ARTBOARD_SEARXNG_PORT
+# default and searxng/settings.yml.example in the app repo) -----------------
+SEARXNG_PORT=8888
+SEARXNG_USER="searxng"
+SEARXNG_HOME="${SHARED_DIR}/searxng"
+SEARXNG_SRC="${SEARXNG_HOME}/searxng-src"
+SEARXNG_VENV="${SEARXNG_HOME}/venv"
+SEARXNG_SETTINGS="${SHARED_DIR}/searxng-settings.yml"
+SEARXNG_INI="${SHARED_DIR}/searxng-uwsgi.ini"
+SEARXNG_UNIT_FILE="/etc/systemd/system/${APP_NAME}-searxng.service"
+DISCOVERY_MARKER="${SHARED_DIR}/discovery_enabled"
+# Upstream SearXNG itself, not this app's fork of anything -- there's no fork,
+# this just builds SearXNG from its own source the way its own install docs do.
+SEARXNG_UPSTREAM_REPO="https://github.com/searxng/searxng"
+SEARXNG_GIT_REF="master"
 
 # --- colored logging ---------------------------------------------------------
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -175,6 +223,265 @@ ensure_node() {
   apt-get install -y nodejs
 }
 
+# --- Discovery / SearXNG (native, no Docker) --------------------------------
+# Packages per docs.searxng.org/admin/installation-searxng.html's own Debian
+# instructions -- `uwsgi`/`uwsgi-plugin-python3` from apt rather than pip
+# installing uwsgi from source, since the distro binary is already built and
+# tested against this Debian's libc/openssl, and building uwsgi from source
+# needs its own separate toolchain (libpcre3-dev and friends) this script
+# would otherwise have to track.
+ensure_searxng_packages() {
+  local pkgs=(python3-dev python3-babel uwsgi uwsgi-plugin-python3
+              libxslt1-dev zlib1g-dev libffi-dev libssl-dev)
+  local missing=()
+  local pkg
+  for pkg in "${pkgs[@]}"; do
+    dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
+  done
+  if [ "${#missing[@]}" -gt 0 ]; then
+    log "Installing apt packages for SearXNG: ${missing[*]}..."
+    apt-get update -qq
+    apt-get install -y --no-install-recommends "${missing[@]}"
+  fi
+}
+
+ensure_searxng_user() {
+  if ! id -u "$SEARXNG_USER" >/dev/null 2>&1; then
+    log "Creating system user '${SEARXNG_USER}'..."
+    useradd --system --home-dir "$SEARXNG_HOME" --shell /usr/sbin/nologin "$SEARXNG_USER"
+  fi
+  install -d -o "$SEARXNG_USER" -g "$SEARXNG_USER" "$SEARXNG_HOME"
+}
+
+# Clones (first run) or fast-forwards (later runs) SearXNG's own upstream
+# source, then (re)installs it into its own venv -- entirely separate from
+# the app's backend venv, since these are two unrelated Python projects with
+# their own dependency sets. Idempotent: safe to call from both `install
+# --discovery` and every later `update`.
+install_or_update_searxng_source() {
+  ensure_searxng_packages
+  ensure_searxng_user
+
+  if [ ! -d "${SEARXNG_SRC}/.git" ]; then
+    log "Cloning SearXNG (${SEARXNG_GIT_REF})..."
+    su -s /bin/bash "$SEARXNG_USER" -c \
+      "git clone --branch '${SEARXNG_GIT_REF}' --depth 1 '${SEARXNG_UPSTREAM_REPO}' '${SEARXNG_SRC}'"
+  else
+    log "Updating SearXNG source..."
+    su -s /bin/bash "$SEARXNG_USER" -c "
+      set -euo pipefail
+      cd '${SEARXNG_SRC}'
+      git fetch --depth 1 origin '${SEARXNG_GIT_REF}'
+      git reset --hard FETCH_HEAD
+    "
+  fi
+
+  if [ ! -d "$SEARXNG_VENV" ]; then
+    log "Creating SearXNG virtualenv..."
+    su -s /bin/bash "$SEARXNG_USER" -c "python3 -m venv '${SEARXNG_VENV}'"
+  fi
+
+  log "Installing SearXNG's Python dependencies (this can take a minute)..."
+  su -s /bin/bash "$SEARXNG_USER" -c "
+    set -euo pipefail
+    export HOME='${SEARXNG_HOME}'
+    '${SEARXNG_VENV}/bin/pip' install --quiet -U pip setuptools wheel
+    '${SEARXNG_VENV}/bin/pip' install --quiet -U pyyaml msgspec typing-extensions pybind11
+    cd '${SEARXNG_SRC}'
+    '${SEARXNG_VENV}/bin/pip' install --quiet --use-pep517 --no-build-isolation -e .
+  "
+}
+
+# Seeds shared/searxng-settings.yml from this app's own tracked example
+# (searxng/settings.yml.example -- already configured with `limiter: false`
+# and `formats: [html, json]`, the same file run.sh and docker-compose use),
+# with a real secret_key generated once. Never overwritten after that, same
+# as write_env_template -- edit it by hand and restart the service.
+write_searxng_settings() {
+  if [ -f "$SEARXNG_SETTINGS" ]; then
+    warn "SearXNG settings already exist at ${SEARXNG_SETTINGS}, leaving them untouched."
+    return
+  fi
+  local example="${CURRENT_LINK}/searxng/settings.yml.example"
+  if [ ! -f "$example" ]; then
+    err "Cannot find ${example} -- has a release been built yet? Run 'artboard-ctl update' first."
+    exit 1
+  fi
+  log "Generating ${SEARXNG_SETTINGS} from ${example}..."
+  local secret
+  secret="$(openssl rand -hex 32)"
+  sed "s/CHANGE_ME_openssl_rand_hex_32/${secret}/" "$example" > "$SEARXNG_SETTINGS"
+  chown root:"$SEARXNG_USER" "$SEARXNG_SETTINGS"
+  chmod 0640 "$SEARXNG_SETTINGS"
+}
+
+# Regenerated on every install/update, like write_unit -- this is derived
+# config (paths + port), not something to hand-edit; use a copy of the
+# settings.yml for content changes instead.
+write_searxng_ini() {
+  log "Writing ${SEARXNG_INI}..."
+  cat > "$SEARXNG_INI" <<EOF
+# artboard-searxng -- managed by artboard-ctl. Regenerated on every
+# install/update.
+[uwsgi]
+uid = ${SEARXNG_USER}
+gid = ${SEARXNG_USER}
+env = LANG=C.UTF-8
+env = LANGUAGE=C.UTF-8
+env = LC_ALL=C.UTF-8
+# uwsgi's uid/gid privilege drop does not also switch \$HOME -- set it
+# explicitly so anything that falls back to \$HOME/.cache (the favicon
+# resolver's sqlite cache, notably) lands under the writable directory the
+# systemd unit's ReadWritePaths actually grants, not wherever HOME happened
+# to be inherited from.
+env = HOME=${SEARXNG_HOME}
+env = SEARXNG_SETTINGS_PATH=${SEARXNG_SETTINGS}
+chdir = ${SEARXNG_SRC}
+module = searx.webapp
+virtualenv = ${SEARXNG_VENV}
+pythonpath = ${SEARXNG_SRC}
+plugin = python3,http
+# Loopback only, same as the backend and frontend units -- reached solely
+# through the backend's /api/discover proxy, never directly.
+http-socket = 127.0.0.1:${SEARXNG_PORT}
+disable-logging = true
+single-interpreter = true
+lazy-apps = true
+master = true
+enable-threads = true
+workers = 2
+threads = 2
+buffer-size = 8192
+die-on-term = true
+EOF
+  chown root:"$SEARXNG_USER" "$SEARXNG_INI"
+  chmod 0640 "$SEARXNG_INI"
+}
+
+write_searxng_unit() {
+  log "Writing systemd unit to ${SEARXNG_UNIT_FILE}..."
+  cat > "$SEARXNG_UNIT_FILE" <<EOF
+# artboard-searxng -- managed by artboard-ctl. Only installed with
+# 'artboard-ctl install --discovery'. Runs SearXNG natively via the
+# distro's uwsgi -- no Docker. Deliberately NOT part of the app's atomic
+# release/rollback lifecycle: it's a side dependency the app talks to over
+# HTTP, like a database, not code this script deploys -- a bad SearXNG
+# update restarts this unit, never artboard.service or artboard-frontend.
+[Unit]
+Description=SearXNG (Art Board Discovery backend)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/uwsgi --ini ${SEARXNG_INI}
+Restart=on-failure
+RestartSec=3
+
+# Hardening. uid/gid in the .ini already drop the worker processes to the
+# searxng user; this restricts what that user's process can touch on top of
+# that. ReadWritePaths is scoped to SEARXNG_HOME (not narrower): SearXNG's
+# favicon-resolver plugin keeps a small sqlite cache, and with HOME set to
+# SEARXNG_HOME (see ensure_searxng_user), anything that falls back to
+# \$HOME/.cache lands there too -- without this, ProtectSystem=strict makes
+# the whole filesystem read-only except PrivateTmp's own /tmp, and that
+# cache write fails silently instead of just being slower without it.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=${SEARXNG_HOME}
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+}
+
+# Points the app at SearXNG without clobbering a value someone already set
+# by hand -- write_env_template's own template ships this same line,
+# commented out, so the common case is "uncomment and fill in" and this
+# turns that into "already done".
+set_searxng_url_in_env() {
+  if grep -q '^ARTBOARD_SEARXNG_URL=' "$ENV_FILE" 2>/dev/null; then
+    return
+  fi
+  if grep -q '^# ARTBOARD_SEARXNG_URL=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s|^# ARTBOARD_SEARXNG_URL=.*|ARTBOARD_SEARXNG_URL=http://127.0.0.1:${SEARXNG_PORT}/|" "$ENV_FILE"
+  else
+    echo "ARTBOARD_SEARXNG_URL=http://127.0.0.1:${SEARXNG_PORT}/" >> "$ENV_FILE"
+  fi
+}
+
+health_check_searxng() {
+  wait_for_url "http://127.0.0.1:${SEARXNG_PORT}/healthz"
+}
+
+# Called from cmd_install when --discovery is passed. Safe to call again
+# later (e.g. to add Discovery to an already-installed instance) -- every
+# step here is idempotent the same way the rest of install is.
+setup_discovery() {
+  log "Setting up SearXNG for Discovery (native uwsgi, no Docker)..."
+  install_or_update_searxng_source
+  write_searxng_settings
+  write_searxng_ini
+  write_searxng_unit
+  set_searxng_url_in_env
+
+  touch "$DISCOVERY_MARKER"
+  chown root:"$APP_USER" "$DISCOVERY_MARKER"
+
+  systemctl enable --now "${APP_NAME}-searxng.service"
+  log "Health-checking http://127.0.0.1:${SEARXNG_PORT}/healthz ..."
+  if health_check_searxng; then
+    log "SearXNG is up."
+  else
+    warn "SearXNG did not answer its health check in time -- check 'journalctl -u ${APP_NAME}-searxng'."
+  fi
+
+  log "Restarting ${APP_NAME}.service to pick up ARTBOARD_SEARXNG_URL..."
+  systemctl restart "${APP_NAME}.service"
+  log "Turn Discovery on under Settings -> Discovery in the app to use it --"
+  log "the proxy also checks a database flag this script cannot set for you."
+}
+
+# Called from cmd_update, only if $DISCOVERY_MARKER exists. Refreshes
+# SearXNG's source + deps and restarts it; a failed health check here is a
+# warning, not a fatal error -- Discovery is optional, and the app itself
+# doesn't depend on SearXNG being reachable to keep serving everything else.
+update_discovery() {
+  log "Updating SearXNG (Discovery)..."
+  install_or_update_searxng_source
+  write_searxng_ini
+  systemctl restart "${APP_NAME}-searxng.service"
+  if health_check_searxng; then
+    log "SearXNG updated and healthy."
+  else
+    warn "SearXNG did not answer its health check after updating -- check 'journalctl -u ${APP_NAME}-searxng'."
+  fi
+}
+
+# Called from cmd_remove, only if $DISCOVERY_MARKER exists, after the
+# confirmation prompt already asked once. Only tears down the systemd unit
+# and the searxng system user -- the files under $SHARED_DIR (source clone,
+# venv, settings, ini, marker) are removed by cmd_remove's final
+# `rm -rf "$BASE_DIR"` along with everything else, so this doesn't repeat
+# that here.
+remove_discovery() {
+  systemctl stop "${APP_NAME}-searxng.service" 2>/dev/null || true
+  systemctl disable "${APP_NAME}-searxng.service" 2>/dev/null || true
+  rm -f "$SEARXNG_UNIT_FILE"
+  systemctl daemon-reload
+  if id -u "$SEARXNG_USER" >/dev/null 2>&1; then
+    userdel "$SEARXNG_USER" 2>/dev/null || true
+  fi
+}
+
 self_install() {
   # Copies whatever script is currently running to /usr/local/bin, so
   # `update`/`remove` work without the bootstrap clone sticking around.
@@ -220,6 +527,17 @@ ARTBOARD_MAX_UPLOAD_BYTES=33554432
 # without Discovery; the value under Settings -> Discovery takes precedence
 # over this one once set there.
 # ARTBOARD_SEARXNG_URL=http://127.0.0.1:8888/
+
+# Read by artboard-frontend.service (vite preview), not the backend -- it is
+# NOT an ARTBOARD_-prefixed setting, it lives here only because both units
+# share this same EnvironmentFile. Whatever reverse proxy or tunnel sits in
+# front of this box (Caddy, a Cloudflare Tunnel, ...) forwards the original
+# Host header through to vite preview, and Vite rejects any Host it doesn't
+# recognize by default (DNS-rebinding protection) -- localhost and bare IPs
+# are allowed automatically, a real hostname is not. Uncomment and set this
+# to your public hostname(s) (comma-separated) or the frontend will answer
+# every request with "403 This host is not allowed".
+# __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=artboard.example.com
 EOF
   chown root:"$APP_USER" "$ENV_FILE"
   chmod 0640 "$ENV_FILE"
@@ -267,6 +585,47 @@ MemoryDenyWriteExecute=false
 WantedBy=multi-user.target
 EOF
 
+  log "Writing systemd unit to ${FRONTEND_UNIT_FILE}..."
+  cat > "$FRONTEND_UNIT_FILE" <<EOF
+# artboard-frontend -- managed by artboard-ctl. Re-generated on every
+# 'install'; use a drop-in at ${FRONTEND_UNIT_FILE}.d/ for local overrides.
+[Unit]
+Description=Art Board frontend (vite preview)
+After=network.target ${APP_NAME}.service
+Wants=${APP_NAME}.service
+
+[Service]
+Type=simple
+User=${APP_USER}
+Group=${APP_USER}
+WorkingDirectory=${CURRENT_LINK}/frontend
+# node_modules/.bin/vite rather than 'npx vite' -- npx would try to resolve
+# and possibly fetch a package over the network on every start; calling the
+# binary npm ci already installed is instant and works offline.
+# vite.config.ts's preview.proxy sends /api to 127.0.0.1:${TARGET_PORT} itself,
+# so this is the one port anything in front of this box needs to reach --
+# see backend/deploy/Caddyfile.example.
+ExecStart=${CURRENT_LINK}/frontend/node_modules/.bin/vite preview --host 127.0.0.1 --port ${FRONTEND_PORT} --strictPort
+Restart=on-failure
+RestartSec=3
+
+# Hardening -- serves static files only, no user-controlled writes at all,
+# so this is stricter than the backend unit.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
   log "Writing purge timer to ${PURGE_SERVICE_FILE} / ${PURGE_TIMER_FILE}..."
   cat > "$PURGE_SERVICE_FILE" <<EOF
 [Unit]
@@ -303,8 +662,10 @@ EOF
   systemctl daemon-reload
 }
 
-health_check() {
-  local url="http://127.0.0.1:${TARGET_PORT}${HEALTH_PATH}"
+wait_for_url() {
+  # $1 = URL to poll. Shared by the backend health-check and the frontend
+  # readiness check below.
+  local url="$1"
   local attempts=30
   for i in $(seq 1 "$attempts"); do
     if curl -fsS -o /dev/null "$url"; then
@@ -313,6 +674,14 @@ health_check() {
     sleep 1
   done
   return 1
+}
+
+health_check_backend() {
+  wait_for_url "http://127.0.0.1:${TARGET_PORT}${HEALTH_PATH}"
+}
+
+health_check_frontend() {
+  wait_for_url "http://127.0.0.1:${FRONTEND_PORT}/"
 }
 
 atomic_symlink() {
@@ -369,6 +738,7 @@ backup_db_if_present() {
 
 # --- subcommands ---------------------------------------------------------------
 cmd_install() {
+  local discovery_flag="${1:-}"
   require_root
   ensure_user
   ensure_dirs
@@ -391,10 +761,18 @@ cmd_install() {
   self_install
   cmd_update
   systemctl enable --now "${APP_NAME}.service"
+  systemctl enable --now "${APP_NAME}-frontend.service"
   systemctl enable --now "${APP_NAME}-purge.timer"
-  log "Installed and started ${APP_NAME}.service and ${APP_NAME}-purge.timer."
-  log "Edit ${ENV_FILE} then 'systemctl restart ${APP_NAME}' if you need to change config."
-  log "Put Caddy (or nginx) in front using backend/deploy/Caddyfile.example -- it is not managed by this script."
+  log "Installed and started ${APP_NAME}.service, ${APP_NAME}-frontend.service and ${APP_NAME}-purge.timer."
+  log "Edit ${ENV_FILE} then 'systemctl restart ${APP_NAME}' if you need to change backend config."
+  log "Put a reverse proxy (Caddy, nginx, a Cloudflare Tunnel, ...) in front of 127.0.0.1:${FRONTEND_PORT}"
+  log "-- see backend/deploy/Caddyfile.example. Not managed by this script."
+
+  if [ "$discovery_flag" = "--discovery" ]; then
+    setup_discovery
+  else
+    log "Discovery/SearXNG not installed. Run 'artboard-ctl install --discovery' to add it later."
+  fi
 }
 
 cmd_update() {
@@ -470,22 +848,25 @@ cmd_update() {
   log "Swapping current -> ${release_name}..."
   atomic_symlink "$release_dir" "$CURRENT_LINK"
 
-  log "Restarting ${APP_NAME}.service..."
-  systemctl restart "${APP_NAME}.service"
+  log "Restarting ${APP_NAME}.service and ${APP_NAME}-frontend.service..."
+  systemctl restart "${APP_NAME}.service" "${APP_NAME}-frontend.service"
 
-  log "Health-checking http://127.0.0.1:${TARGET_PORT}${HEALTH_PATH} ..."
-  if health_check; then
-    log "Health check passed."
+  log "Health-checking http://127.0.0.1:${TARGET_PORT}${HEALTH_PATH} and http://127.0.0.1:${FRONTEND_PORT}/ ..."
+  if health_check_backend && health_check_frontend; then
+    log "Health checks passed."
     if [ -n "$old_current" ] && [ "$old_current" != "$release_dir" ]; then
       atomic_symlink "$old_current" "$PREVIOUS_LINK"
     fi
     prune_releases
     log "Deploy complete: ${release_name}"
+    if [ -f "$DISCOVERY_MARKER" ]; then
+      update_discovery
+    fi
   else
     err "Health check FAILED. Rolling back code..."
     if [ -n "$old_current" ]; then
       atomic_symlink "$old_current" "$CURRENT_LINK"
-      systemctl restart "${APP_NAME}.service"
+      systemctl restart "${APP_NAME}.service" "${APP_NAME}-frontend.service"
       err "Rolled back to previous release ($(basename "$old_current"))."
     else
       err "No previous release to roll back to (this was the first deploy)."
@@ -503,16 +884,24 @@ cmd_remove() {
   require_root
   warn "This will stop ${APP_NAME}, delete its systemd units, remove the"
   warn "'${APP_USER}' system user, and wipe ${BASE_DIR} (all releases + data + backups)."
+  if [ -f "$DISCOVERY_MARKER" ]; then
+    warn "Discovery is enabled -- this also removes SearXNG (${APP_NAME}-searxng.service"
+    warn "and the '${SEARXNG_USER}' system user)."
+  fi
   read -r -p "Type 'yes' to confirm: " confirm
   if [ "$confirm" != "yes" ]; then
     err "Aborted."
     exit 1
   fi
 
-  systemctl stop "${APP_NAME}.service" "${APP_NAME}-purge.timer" 2>/dev/null || true
-  systemctl disable "${APP_NAME}.service" "${APP_NAME}-purge.timer" 2>/dev/null || true
-  rm -f "$UNIT_FILE" "$PURGE_SERVICE_FILE" "$PURGE_TIMER_FILE"
+  systemctl stop "${APP_NAME}.service" "${APP_NAME}-frontend.service" "${APP_NAME}-purge.timer" 2>/dev/null || true
+  systemctl disable "${APP_NAME}.service" "${APP_NAME}-frontend.service" "${APP_NAME}-purge.timer" 2>/dev/null || true
+  rm -f "$UNIT_FILE" "$FRONTEND_UNIT_FILE" "$PURGE_SERVICE_FILE" "$PURGE_TIMER_FILE"
   systemctl daemon-reload
+
+  if [ -f "$DISCOVERY_MARKER" ]; then
+    remove_discovery
+  fi
 
   if id -u "$APP_USER" >/dev/null 2>&1; then
     userdel "$APP_USER" 2>/dev/null || true
@@ -524,11 +913,11 @@ cmd_remove() {
 
 # --- dispatch -------------------------------------------------------------------
 case "${1:-}" in
-  install) cmd_install ;;
+  install) cmd_install "${2:-}" ;;
   update)  cmd_update ;;
   remove)  cmd_remove ;;
   *)
-    echo "Usage: artboard-ctl {install|update|remove}" >&2
+    echo "Usage: artboard-ctl {install [--discovery]|update|remove}" >&2
     exit 2
     ;;
 esac

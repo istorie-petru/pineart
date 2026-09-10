@@ -1,0 +1,21 @@
+# Rendered by install-cloudflared.sh into /etc/cloudflared/config.yml --
+# don't edit this template's output in place, edit deploy/deploy.env and
+# re-run the installer instead (it's idempotent).
+#
+# Pineart is one public hostname, not two: artboard-frontend.service (vite
+# preview on 127.0.0.1:4173) already proxies /api itself to the backend on
+# 127.0.0.1:8000 -- see frontend/vite.config.ts's `preview.proxy` -- so the
+# tunnel only ever needs to reach the frontend port. If a future service
+# (e.g. a second exposed API) needs its own hostname, give it its own
+# `hostname:`/`service:` pair here rather than layering path rules onto this
+# one -- see deploy/README.md.
+tunnel: __TUNNEL_ID__
+credentials-file: __CRED_FILE__
+
+ingress:
+  - hostname: __PUBLIC_HOSTNAME__
+    service: http://127.0.0.1:__LOCAL_PORT__
+  # Required catch-all: cloudflared refuses to start without one, and any
+  # request that doesn't match a hostname above should 404, not silently
+  # fall through to the app.
+  - service: http_status:404
