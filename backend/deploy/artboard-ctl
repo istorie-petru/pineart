@@ -599,6 +599,11 @@ Type=simple
 User=${APP_USER}
 Group=${APP_USER}
 WorkingDirectory=${CURRENT_LINK}/frontend
+# Shared with artboard.service -- the only key this unit actually reads out
+# of it is __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS (see write_env_template),
+# but without this line vite preview never sees it at all, and every
+# request through a real reverse proxy or tunnel gets a 403.
+EnvironmentFile=${ENV_FILE}
 # node_modules/.bin/vite rather than 'npx vite' -- npx would try to resolve
 # and possibly fetch a package over the network on every start; calling the
 # binary npm ci already installed is instant and works offline.
@@ -609,12 +614,19 @@ ExecStart=${CURRENT_LINK}/frontend/node_modules/.bin/vite preview --host 127.0.0
 Restart=on-failure
 RestartSec=3
 
-# Hardening -- serves static files only, no user-controlled writes at all,
-# so this is stricter than the backend unit.
+# Hardening -- serves static files only, no USER-controlled writes, but not
+# zero writes: Vite bundles vite.config.ts into a transient .mjs file under
+# node_modules/.vite-temp/ every time it loads config -- including in
+# 'preview' mode, not just dev/build -- so ProtectSystem=strict needs an
+# explicit carve-out here or the process can't even start (EROFS). Scoped to
+# this release's frontend directory, not the whole filesystem; systemd
+# re-resolves the CURRENT_LINK symlink in it on every restart, same as
+# WorkingDirectory above, so this always tracks whichever release is live.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+ReadWritePaths=${CURRENT_LINK}/frontend
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
@@ -865,6 +877,15 @@ cmd_update() {
   local old_current=""
   if [ -L "$CURRENT_LINK" ]; then
     old_current="$(readlink -f "$CURRENT_LINK")"
+    # readlink -f resolves a symlink chain and prints the final target even
+    # when that target doesn't exist -- it only requires the directories
+    # ABOVE the final component to exist. A CURRENT_LINK left dangling by an
+    # earlier failed deploy (pointing at an already-deleted release) would
+    # otherwise be treated as a valid rollback target below: non-empty, but
+    # nothing is actually there. Require the directory to exist too.
+    if [ ! -d "$old_current" ]; then
+      old_current=""
+    fi
   fi
 
   log "Swapping current -> ${release_name}..."
