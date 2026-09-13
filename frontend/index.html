@@ -36,10 +36,12 @@
     <button data-view="boards" data-sub="organized" class="active">Boards</button>
   </nav>
   <div class="nav-right">
+    <!-- Desktop-only by construction: `header.topnav` (and everything in it)
+         is hidden entirely below 640px, same as the rest of this bar. Mobile
+         has no equivalent entry point — dropping a file from a phone's
+         picker onto a hidden topbar isn't a workflow this needs to cover. -->
+    <button class="btn btn-tonal" id="addImagesBtn" title="Add images" aria-label="Add images"></button>
     <button class="icon-btn" id="settingsBtn" data-view="settings" title="Settings" aria-label="Settings"></button>
-    <!-- Adding images lives only in Settings now — these two stay here as the
-         shared hidden inputs behind that button (and drag-and-drop), not tied
-         to any topbar control of their own. -->
     <input type="file" id="uploadInput" accept="image/*" multiple hidden />
     <input type="file" id="folderInput" accept="image/*" multiple hidden webkitdirectory />
   </div>

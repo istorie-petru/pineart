@@ -7,8 +7,9 @@
  */
 
 import { api } from "../api";
+import { DECORATIVE_ICON_KEYS } from "../icons";
 import type { TagCategory } from "../types";
-import { confirmDialog, el, guard, openModal, toast } from "../ui";
+import { buildIconPicker, confirmDialog, el, guard, openModal, toast } from "../ui";
 
 export function openCategoryModal(category: TagCategory | null, onSaved: () => void): void {
   const modal = openModal({ className: "simple-modal-body", maxWidth: "380px" });
@@ -33,13 +34,29 @@ export function openCategoryModal(category: TagCategory | null, onSaved: () => v
   linksCheckbox.checked = category?.links_enabled ?? false;
   linksLabel.append(linksCheckbox, "Tags can link out (e.g. creator profiles)");
 
+  // The default icon for every tag filed under this category — a tag with
+  // an icon of its own still wins (see ui.ts's tagIconKey).
+  const iconLabel = el("label", { style: "margin-top:14px;" });
+  iconLabel.textContent = "Icon (default for tags in this category)";
+  const iconPicker = buildIconPicker(DECORATIVE_ICON_KEYS, category?.icon, { allowNone: true });
+
   const save = el("button", {
     class: "btn btn-filled",
     style: "margin-top:18px; width:100%; justify-content:center;",
   }) as HTMLButtonElement;
   save.textContent = "Save";
 
-  modal.body.append(heading, nameLabel, nameInput, colorLabel, colorInput, linksLabel, save);
+  modal.body.append(
+    heading,
+    nameLabel,
+    nameInput,
+    colorLabel,
+    colorInput,
+    linksLabel,
+    iconLabel,
+    iconPicker.element,
+    save,
+  );
 
   if (category) {
     const remove = el("button", {
@@ -75,15 +92,17 @@ export function openCategoryModal(category: TagCategory | null, onSaved: () => v
         return;
       }
       save.disabled = true;
+      const chosenIcon = iconPicker.get();
       try {
         if (category) {
           await api.patchTagCategory(category.id, {
             name,
             color: colorInput.value,
             links_enabled: linksCheckbox.checked,
+            icon: chosenIcon,
           });
         } else {
-          await api.createTagCategory(name, colorInput.value, linksCheckbox.checked);
+          await api.createTagCategory(name, colorInput.value, linksCheckbox.checked, chosenIcon);
         }
         modal.close();
         onSaved();

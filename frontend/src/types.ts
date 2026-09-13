@@ -7,6 +7,9 @@ export interface TagCategory {
   color: string;
   position: number;
   links_enabled: boolean;
+  /** Default icon for every tag filed under this category — a tag's own
+   * icon (see `Tag.icon`) wins over this, same precedence as `color`. */
+  icon?: string | null;
 }
 
 export interface Tag {
@@ -18,6 +21,12 @@ export interface Tag {
   /** A single outbound link (creator shop/profile/portfolio). Only offered
    * for editing when the tag's category has `links_enabled`. */
   link_url?: string | null;
+  /** Opts this tag's items out of the Feed while leaving them visible in any
+   * board they belong to and in a search that names the tag explicitly. */
+  hide_from_feed?: boolean;
+  /** This tag's own icon — see `ui.ts`'s `tagIconKey` for the fallback to
+   * the category's icon. */
+  icon?: string | null;
 }
 
 export interface TagGraphRule {
@@ -109,6 +118,9 @@ export interface GraphNode {
   color: string | null;
   category?: TagCategory | null;
   link_url?: string | null;
+  /** Opts this tag's items out of the Feed — see api.patchTag. */
+  hide_from_feed?: boolean;
+  icon?: string | null;
   usage_count: number;
 }
 

@@ -278,6 +278,8 @@ export const api = {
       category_id?: number;
       clear_category?: boolean;
       link_url?: string;
+      hide_from_feed?: boolean;
+      icon?: string | null;
     },
   ) => request<Tag>(`/api/tags/${id}`, json("PATCH", body)),
   deleteTag: (id: number) => request<void>(`/api/tags/${id}`, { method: "DELETE" }),
@@ -288,10 +290,15 @@ export const api = {
 
   // --- tag categories ---
   listTagCategories: () => request<TagCategory[]>("/api/tags/categories"),
-  createTagCategory: (name: string, color: string, linksEnabled = false) =>
-    request<TagCategory>("/api/tags/categories", json("POST", { name, color, links_enabled: linksEnabled })),
-  patchTagCategory: (id: number, body: { name?: string; color?: string; links_enabled?: boolean }) =>
-    request<TagCategory>(`/api/tags/categories/${id}`, json("PATCH", body)),
+  createTagCategory: (name: string, color: string, linksEnabled = false, icon?: string | null) =>
+    request<TagCategory>(
+      "/api/tags/categories",
+      json("POST", { name, color, links_enabled: linksEnabled, icon }),
+    ),
+  patchTagCategory: (
+    id: number,
+    body: { name?: string; color?: string; links_enabled?: boolean; icon?: string | null },
+  ) => request<TagCategory>(`/api/tags/categories/${id}`, json("PATCH", body)),
   deleteTagCategory: (id: number) => request<void>(`/api/tags/categories/${id}`, { method: "DELETE" }),
 
   // --- tag graph rules ---

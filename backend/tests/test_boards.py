@@ -96,6 +96,38 @@ def test_empty_dynamic_board_matches_nothing(client):
     assert client.get("/api/items", params={"board": board["id"]}).json()["total"] == 0
 
 
+def test_dynamic_board_filters_can_be_changed_after_creation(client):
+    """The board settings drawer's saved-search editor: PATCH replaces the
+    query wholesale, so membership follows the new tags immediately."""
+    forest, night = _tag_id(client, "forest"), _tag_id(client, "night")
+    board = client.post(
+        "/api/boards",
+        json={"name": "Landscapes", "is_dynamic": True, "query_tags": [{"tag_id": forest, "match_mode": "any"}]},
+    ).json()
+    forest_item = upload(client, tags="forest", image_kwargs={"seed": 1})["item"]
+    assert client.get(f"/api/boards/{board['id']}").json()["item_count"] == 1
+
+    updated = client.patch(
+        f"/api/boards/{board['id']}",
+        json={"query_tags": [{"tag_id": night, "match_mode": "any"}]},
+    ).json()
+    assert [t["id"] for t in updated["query_tags"]] == [night]
+
+    night_item = upload(client, tags="night", image_kwargs={"seed": 2})["item"]
+    listed = client.get("/api/items", params={"board": board["id"]}).json()
+    assert [i["id"] for i in listed["items"]] == [night_item["id"]]
+    assert forest_item["id"] not in [i["id"] for i in listed["items"]]
+
+
+def test_manual_board_rejects_query_tag_edits(client):
+    board = client.post("/api/boards", json={"name": "Hand-picked"}).json()
+    tag_id = _tag_id(client, "x")
+    response = client.patch(
+        f"/api/boards/{board['id']}", json={"query_tags": [{"tag_id": tag_id, "match_mode": "any"}]}
+    )
+    assert response.status_code == 400
+
+
 def test_subboard_tag_filters_board_contents(client):
     board = client.post("/api/boards", json={"name": "Mixed"}).json()
     tagged = upload(client, tags="ink", image_kwargs={"seed": 1})["item"]

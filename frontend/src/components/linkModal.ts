@@ -1,9 +1,9 @@
 /** Create/edit a link pill. There is no list view — this modal is the link UI. */
 
 import { api } from "../api";
-import { icon, LINK_ICON_KEYS } from "../icons";
+import { DECORATIVE_ICON_KEYS } from "../icons";
 import type { Link } from "../types";
-import { confirmDialog, el, guard, openModal, toast } from "../ui";
+import { buildIconPicker, confirmDialog, el, guard, openModal, toast } from "../ui";
 
 export function openLinkModal(link: Link | null, onSaved: () => void): void {
   const modal = openModal({ className: "link-modal-body", maxWidth: "400px" });
@@ -23,18 +23,7 @@ export function openLinkModal(link: Link | null, onSaved: () => void): void {
 
   const iconLabel = el("label");
   iconLabel.textContent = "Icon";
-  const picker = el("div", { class: "icon-picker" });
-  let chosenIcon = link?.icon ?? "globe";
-  for (const key of LINK_ICON_KEYS) {
-    const button = el("button", { type: "button", title: key }, icon(key, true));
-    button.classList.toggle("selected", key === chosenIcon);
-    button.addEventListener("click", () => {
-      chosenIcon = key;
-      picker.querySelectorAll("button").forEach((b) => b.classList.remove("selected"));
-      button.classList.add("selected");
-    });
-    picker.append(button);
-  }
+  const iconPicker = buildIconPicker(DECORATIVE_ICON_KEYS, link?.icon ?? "globe");
 
   const save = el("button", {
     class: "btn btn-filled",
@@ -42,7 +31,7 @@ export function openLinkModal(link: Link | null, onSaved: () => void): void {
   }) as HTMLButtonElement;
   save.textContent = "Save";
 
-  modal.body.append(heading, nameLabel, nameInput, urlLabel, urlInput, iconLabel, picker, save);
+  modal.body.append(heading, nameLabel, nameInput, urlLabel, urlInput, iconLabel, iconPicker.element, save);
 
   if (link) {
     const remove = el("button", {
@@ -76,6 +65,7 @@ export function openLinkModal(link: Link | null, onSaved: () => void): void {
       if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
 
       save.disabled = true;
+      const chosenIcon = iconPicker.get() ?? "globe";
       try {
         if (link) await api.patchLink(link.id, { title, url, icon: chosenIcon });
         else await api.createLink({ title, url, icon: chosenIcon });

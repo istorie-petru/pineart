@@ -78,7 +78,9 @@ def test_graph_payload_matches_the_d3_binding(client):
     graph = client.get("/api/tags/graph").json()
 
     assert set(graph) == {"nodes", "edges"}
-    assert set(graph["nodes"][0]) == {"id", "name", "color", "category", "link_url", "usage_count"}
+    assert set(graph["nodes"][0]) == {
+        "id", "name", "color", "category", "link_url", "hide_from_feed", "icon", "usage_count",
+    }
     assert set(graph["edges"][0]) == {"source", "target", "weight"}
     # tagGraph.ts uses forceLink().id(d => d.id), so source/target must be the
     # node ids, not indices or objects.

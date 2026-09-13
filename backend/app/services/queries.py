@@ -234,6 +234,26 @@ def build_query(
     if untagged_only:
         stmt = stmt.where(~select(ItemTag.item_id).where(ItemTag.item_id == Item.id).exists())
 
+    # A tag marked "hide from feed" (Settings → Tags → click the tag in the
+    # graph) is filtered out of passive browsing — the Feed, and any other
+    # listing with no board of its own — but not out of a board someone
+    # deliberately built, and not out of a search that names the tag
+    # explicitly: asking for it by name is exactly how you'd go looking for
+    # something you chose to keep out of the ambient scroll. Trash is
+    # excluded too; it is a maintenance view, not browsing.
+    if board is None and not only_deleted:
+        requested = {name.lower() for name in parsed.tags}
+        hidden_tag_ids = [
+            hidden.id
+            for hidden in db.scalars(select(Tag).where(Tag.hide_from_feed.is_(True))).all()
+            if hidden.slug.lower() not in requested and hidden.name.lower() not in requested
+        ]
+        if hidden_tag_ids:
+            hidden_exists = select(ItemTag.item_id).where(
+                ItemTag.item_id == Item.id, ItemTag.tag_id.in_(hidden_tag_ids)
+            )
+            stmt = stmt.where(~hidden_exists.exists())
+
     if board is not None:
         if board.is_dynamic:
             stmt = stmt.where(Item.id.in_(dynamic_board_item_ids(db, board)))

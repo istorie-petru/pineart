@@ -66,6 +66,7 @@ def get_or_create(
     color: str | None = None,
     category_id: int | None = None,
     link_url: str | None = None,
+    icon: str | None = None,
 ) -> Tag:
     """Find or create a tag, treating names that share a slug as the same tag.
 
@@ -89,14 +90,14 @@ def get_or_create(
     if existing:
         return existing
 
-    tag = Tag(name=clean, slug=slug, color=color, category_id=category_id, link_url=link_url)
+    tag = Tag(name=clean, slug=slug, color=color, category_id=category_id, link_url=link_url, icon=icon)
     db.add(tag)
     db.flush()
     return tag
 
 
 def get_or_create_category(
-    db: Session, name: str, color: str, links_enabled: bool = False
+    db: Session, name: str, color: str, links_enabled: bool = False, icon: str | None = None
 ) -> TagCategory:
     """Find or create a category, matching the same slug-is-identity rule as tags."""
     clean = " ".join(name.split())
@@ -113,7 +114,12 @@ def get_or_create_category(
 
     next_position = db.scalar(select(func.coalesce(func.max(TagCategory.position), -1))) or -1
     category = TagCategory(
-        name=clean, slug=slug, color=color, position=next_position + 1, links_enabled=links_enabled
+        name=clean,
+        slug=slug,
+        color=color,
+        position=next_position + 1,
+        links_enabled=links_enabled,
+        icon=icon,
     )
     db.add(category)
     db.flush()

@@ -3,7 +3,7 @@
 import "./styles.css";
 
 import { api, setConnectivityHandler, setUnauthorizedHandler } from "./api";
-import { initAddImages } from "./components/addImagesMenu";
+import { initAddImages, toggleAddImagesMenu } from "./components/addImagesMenu";
 import { maybeShowInstallTip } from "./components/installTip";
 import { openUploadDialog, reportUpload } from "./components/uploadDialog";
 import { icon } from "./icons";
@@ -115,6 +115,13 @@ function updateFeedVisibility(): void {
 function buildNav(): void {
   qs("#settingsBtn").innerHTML = icon("settings", true);
 
+  const addImagesBtn = qs("#addImagesBtn");
+  addImagesBtn.innerHTML = `${icon("upload", true)} Add images`;
+  addImagesBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleAddImagesMenu(addImagesBtn);
+  });
+
   for (const [view, label, iconName, sub] of [
     ["feed", "Discover", "search", undefined],
     ["boards", "Feed", "image", "unorganized"],
@@ -137,9 +144,9 @@ function buildNav(): void {
   });
 }
 
-/** The topbar's own "Add images" button is gone — the function lives only in
- * Settings now — but the shared file inputs and drag-and-drop still need
- * wiring regardless of which button (or no button at all) triggers them. */
+/** Wires the shared file inputs and drag-and-drop behind the topbar's own
+ * "Add images" button (desktop only — the topbar itself is hidden below
+ * 640px, per `header.topnav`'s media query in styles.css). */
 function setupUploads(): void {
   // Both entry points (picker and drop) go through the same dialog, so tagging
   // and filing behave identically however the images arrived.

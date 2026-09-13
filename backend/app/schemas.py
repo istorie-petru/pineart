@@ -36,18 +36,25 @@ class TagCategoryOut(BaseModel):
     color: str
     position: int = 0
     links_enabled: bool = False
+    #: A default icon for every tag filed under this category — see
+    #: `Tag.icon`, which wins over this when a tag sets its own.
+    icon: str | None = None
 
 
 class TagCategoryIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     color: str = Field(min_length=4, max_length=7)
     links_enabled: bool = False
+    icon: str | None = None
 
 
 class TagCategoryPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=80)
     color: str | None = None
     links_enabled: bool | None = None
+    #: Distinguished from "omitted" via `model_fields_set` (same as
+    #: `TagPatch.link_url`) so clearing the icon back to none is possible.
+    icon: str | None = None
 
 
 class TagOut(BaseModel):
@@ -62,6 +69,14 @@ class TagOut(BaseModel):
     #: editing in the UI when the tag's category has `links_enabled`, but the
     #: value travels on every tag regardless — see the model docstring.
     link_url: str | None = None
+    #: Opts this tag's items out of passive browsing (the Feed) — see the
+    #: model docstring and `services/queries.build_query`.
+    hide_from_feed: bool = False
+    #: This tag's own icon, if it has one. The category's icon is the default
+    #: for every tag under it — see `TagCategoryOut.icon` — but the frontend
+    #: resolves that fallback (same precedence as `color`); this field is
+    #: always the tag's own value, never pre-resolved.
+    icon: str | None = None
 
 
 class TagSuggestion(BaseModel):
@@ -71,6 +86,7 @@ class TagSuggestion(BaseModel):
     color: str | None = None
     category: TagCategoryOut | None = None
     link_url: str | None = None
+    icon: str | None = None
     usage_count: int = 0
 
 
@@ -79,6 +95,7 @@ class TagIn(BaseModel):
     color: str | None = None
     category_id: int | None = None
     link_url: str | None = None
+    icon: str | None = None
 
     _validate_link = field_validator("link_url")(_require_http_if_set)
 
@@ -94,6 +111,10 @@ class TagPatch(BaseModel):
     clear_category: bool = False
     #: Same "always applied when present" rule as `color`: send `""` to clear.
     link_url: str | None = None
+    hide_from_feed: bool | None = None
+    #: Distinguished from "omitted" via `model_fields_set`, same as `link_url`
+    #: — `null` clears it back to inheriting the category's icon (if any).
+    icon: str | None = None
 
     _validate_link = field_validator("link_url")(_require_http_if_set)
 
@@ -282,6 +303,8 @@ class GraphNode(BaseModel):
     color: str | None
     category: TagCategoryOut | None = None
     link_url: str | None = None
+    hide_from_feed: bool = False
+    icon: str | None = None
     usage_count: int
 
 

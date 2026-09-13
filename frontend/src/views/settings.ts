@@ -9,17 +9,16 @@
  */
 
 import { api } from "../api";
-import { toggleAddImagesMenu } from "../components/addImagesMenu";
 import { openCategoryModal } from "../components/categoryModal";
 import { Grid } from "../components/grid";
 import { openGraphRuleModal } from "../components/graphRuleModal";
 import { openItemModal } from "../components/itemModal";
 import { DEFAULT_GRAPH_FORCES, renderTagGraph, type TagGraphForces, type TagGraphHandle } from "../components/tagGraph";
-import { icon } from "../icons";
+import { DECORATIVE_ICON_KEYS, icon } from "../icons";
 import * as router from "../router";
 import { store } from "../store";
-import type { GraphNode, SortKey, TagCategory } from "../types";
-import { confirmDialog, contrastSafeColor, el, guard, openModal, toast } from "../ui";
+import type { GraphNode, Item, NearDuplicatePair, SortKey, TagCategory } from "../types";
+import { buildIconPicker, confirmDialog, contrastSafeColor, el, guard, openModal, toast } from "../ui";
 
 /** Reads the saved physics preference, falling back to the built-in defaults
  * before settings have loaded or if a key is somehow missing. */
@@ -50,18 +49,13 @@ const SECTION_ANCHORS: Record<string, string> = {
 
 export function renderSettings(root: HTMLElement, activeTab: string): () => void {
   const section = el("section", { class: "view active" });
-  const headerRow = el("div", { style: "display:flex; align-items:center; justify-content:space-between; gap:12px;" });
+  const headerRow = el("div", {
+    class: "settings-header-row",
+    style: "display:flex; align-items:center; justify-content:space-between; gap:12px;",
+  });
   const heading = el("h2", { class: "view-title", style: "margin-bottom:0;" });
   heading.textContent = "Settings";
-  // The topbar's Add images icon is hidden entirely on mobile (there's no
-  // topbar at all there) — this is that entry point's stand-in, and works
-  // identically on desktop too rather than being a mobile-only special case.
-  const addImagesBtn = el("button", { class: "btn btn-tonal" }, `${icon("upload", true)} Add images`);
-  addImagesBtn.addEventListener("click", (event) => {
-    event.stopPropagation();
-    toggleAddImagesMenu(addImagesBtn);
-  });
-  headerRow.append(heading, addImagesBtn);
+  headerRow.append(heading);
   section.append(headerRow);
   root.replaceChildren(section);
 
@@ -527,6 +521,36 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     linkRow.append(linkRowLabel, linkInput);
     linkRow.hidden = true;
 
+    // Opts this tag out of passive browsing — the item still exists, is
+    // still tagged, and still shows up in any board it belongs to or in a
+    // search that names the tag directly; it just stops appearing in the
+    // ambient Feed scroll.
+    const hideRow = el("div", { class: "field-row" });
+    const hideRowLabel = el("span");
+    hideRowLabel.textContent = "Hide from Feed";
+    const hideInput = el("input", { type: "checkbox" }) as HTMLInputElement;
+    hideRow.append(hideRowLabel, hideInput);
+    const hideHint = el("p", { class: "hint", style: "margin-top:-4px;" });
+    hideHint.textContent = "Still shows up in boards and in a search that names it directly.";
+
+    // A tag's own icon; unset, it falls back to its category's (the category
+    // modal sets that default) — same precedence as color.
+    const iconRowLabel = el("span", { class: "hint", style: "display:block; margin-top:10px;" });
+    iconRowLabel.textContent = "Icon";
+    const tagIconPicker = buildIconPicker(DECORATIVE_ICON_KEYS, null, {
+      allowNone: true,
+      onPick: guard(async (key) => {
+        if (!selectedTag) return;
+        // Not reflected on the graph node itself — its circle is already
+        // carrying color and name; the icon shows up on the tag's chips
+        // elsewhere (item modal, board pickers) instead.
+        const updated = await api.patchTag(selectedTag.id, { icon: key });
+        selectedTag.icon = updated.icon;
+        await store.loadTags();
+        toast(key ? "Tag icon updated" : "Tag icon cleared");
+      }),
+    });
+
     // Merge: distinct from rename above — rename changes what this tag is
     // called, merge collapses this tag and a different one into a single
     // identity (see advance.md §10, "landscape" / "landscapes"). A plain
@@ -551,7 +575,20 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
       class: "btn btn-error-tonal",
       style: "width:100%; justify-content:center; margin-top:10px;",
     }, `${icon("trash", true)} Delete tag`);
-    editor.append(nameRow, colorRow, categoryRow, linkRow, mergeRow, mergeBtn, viewImages, deleteTagBtn);
+    editor.append(
+      nameRow,
+      colorRow,
+      categoryRow,
+      linkRow,
+      hideRow,
+      hideHint,
+      iconRowLabel,
+      tagIconPicker.element,
+      mergeRow,
+      mergeBtn,
+      viewImages,
+      deleteTagBtn,
+    );
 
     const emptyHint = el("p", { class: "view-desc", style: "margin-top:0;" });
     emptyHint.textContent = "Click a tag in the graph to edit its name or color, or jump to its filtered collection.";
@@ -665,7 +702,11 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
         const name = el("span", { class: "row-name" });
         const dot = el("span", { class: "tag-dot" });
         dot.style.background = contrastSafeColor(category.color);
-        name.append(dot, document.createTextNode(category.name));
+        name.append(dot);
+        // The default icon every tag under this category shows unless it has
+        // one of its own — see ui.ts's `tagIconKey`.
+        if (category.icon) name.insertAdjacentHTML("beforeend", icon(category.icon, true));
+        name.append(document.createTextNode(category.name));
         if (category.links_enabled) name.insertAdjacentHTML("beforeend", icon("extlink", true));
 
         const actions = el("div", { class: "row-actions" });
@@ -816,6 +857,8 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
       refreshCategorySelect(node.category?.id ?? null);
       linkRow.hidden = !node.category?.links_enabled;
       linkInput.value = node.link_url ?? "";
+      hideInput.checked = node.hide_from_feed ?? false;
+      tagIconPicker.set(node.icon ?? null);
 
       mergeSelect.replaceChildren();
       for (const other of store.tags) {
@@ -849,6 +892,11 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
         graph?.updateNode(selectedTag.id, { color: updated.color ?? undefined });
         selectedTag.color = updated.color;
         await store.loadTags();
+        // The graph node's fill is run through `contrastSafeColor` for text
+        // legibility, so it can look noticeably darker/muted than the exact
+        // swatch just picked — this toast is the confirmation that the pick
+        // itself *did* save, even when the visual change is subtle.
+        toast("Tag color updated");
       }),
     );
     categorySelect.addEventListener(
@@ -876,6 +924,15 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
         linkInput.value = updated.link_url ?? "";
         await store.loadTags();
         toast("Link updated");
+      }),
+    );
+    hideInput.addEventListener(
+      "change",
+      guard(async () => {
+        if (!selectedTag) return;
+        const updated = await api.patchTag(selectedTag.id, { hide_from_feed: hideInput.checked });
+        selectedTag.hide_from_feed = updated.hide_from_feed;
+        toast(hideInput.checked ? "Hidden from the Feed" : "Visible in the Feed again");
       }),
     );
     viewImages.addEventListener("click", () => {
@@ -1159,10 +1216,69 @@ function buildTemplateGroup(): HTMLElement {
 }
 
 /**
- * Scans for near-duplicate pairs and renders keep/keep/keep-both actions into
- * `container`. Shared by the Tags → Cleanup panel and the Data Management
- * "Check & merge duplicates" action below, so the two entry points don't
- * carry two copies of the same scan-and-resolve logic.
+ * Groups near-duplicate pairs into clusters of mutually-similar items.
+ *
+ * The backend reports *pairs* (a scan is O(n²) over items, not over clusters),
+ * so four copies of the same picture show up as six overlapping pairs sharing
+ * ids. Resolving pair-by-pair would ask "keep A or B?" and then separately
+ * "keep A or C?" for the same picture — union-find collapses every pair that
+ * shares an id into one group, so the review is "here are all 4, pick one"
+ * exactly once.
+ */
+function groupNearDuplicates(pairs: NearDuplicatePair[]): Item[][] {
+  const parent = new Map<number, number>();
+  const itemsById = new Map<number, Item>();
+  const find = (id: number): number => {
+    let root = id;
+    while (parent.get(root) !== root) root = parent.get(root)!;
+    // Path compression, so repeated lookups in the same group don't walk the
+    // whole chain again.
+    let cursor = id;
+    while (parent.get(cursor) !== root) {
+      const next = parent.get(cursor)!;
+      parent.set(cursor, root);
+      cursor = next;
+    }
+    return root;
+  };
+
+  for (const pair of pairs) {
+    for (const item of [pair.a, pair.b]) {
+      if (!parent.has(item.id)) {
+        parent.set(item.id, item.id);
+        itemsById.set(item.id, item);
+      }
+    }
+    const rootA = find(pair.a.id);
+    const rootB = find(pair.b.id);
+    if (rootA !== rootB) parent.set(rootA, rootB);
+  }
+
+  const groups = new Map<number, Item[]>();
+  for (const id of parent.keys()) {
+    const root = find(id);
+    const list = groups.get(root);
+    if (list) list.push(itemsById.get(id)!);
+    else groups.set(root, [itemsById.get(id)!]);
+  }
+  return [...groups.values()];
+}
+
+/** Higher resolution wins; equal resolution falls back to the larger file,
+ * which for the same picture usually means less lossy compression. Only ever
+ * used to pick a *default* — the person reviewing can still click a different
+ * copy before confirming. */
+function highestQuality(items: Item[]): Item {
+  return [...items].sort((a, b) => b.width * b.height - a.width * a.height || b.filesize - a.filesize)[0];
+}
+
+/**
+ * Scans for near-duplicates, groups them, and renders one row per group into
+ * `container`: every copy found, one of them picked to keep (the
+ * highest-quality copy by default, overridable by clicking another), and a
+ * single action that trashes the rest. Shared by the Tags → Cleanup panel and
+ * the Data Management "Check & merge duplicates" action below, so the two
+ * entry points don't carry two copies of the same scan-and-resolve logic.
  */
 async function renderNearDuplicatesInto(container: HTMLElement): Promise<void> {
   container.replaceChildren(el("span", { class: "hint" }, "Scanning…"));
@@ -1172,43 +1288,84 @@ async function renderNearDuplicatesInto(container: HTMLElement): Promise<void> {
     container.append(el("span", { class: "hint" }, "No near-duplicates found."));
     return;
   }
-  for (const pair of pairs) {
-    const row = el("div", { class: "dupe-pair" });
-    const thumbs = el("div", { class: "dupe-pair-thumbs" });
-    for (const item of [pair.a, pair.b]) {
-      const img = el("img", { src: item.urls.thumb, loading: "lazy", alt: item.title ?? "" });
-      img.addEventListener("click", () => openItemModal(item, { siblings: [pair.a, pair.b] }));
-      thumbs.append(img);
+
+  // Groups with the most copies to sort out are the most worth seeing first.
+  const groups = groupNearDuplicates(pairs).sort((a, b) => b.length - a.length);
+
+  for (const group of groups) {
+    const best = highestQuality(group);
+    let keptId = best.id;
+
+    const row = el("div", { class: "dupe-group" });
+    const count = el("p", { class: "hint", style: "margin:0 0 8px;" });
+    count.textContent =
+      group.length === 2
+        ? "2 copies of the same picture — pick one to keep, the other goes to trash."
+        : `${group.length} copies of the same picture — pick one to keep, the rest go to trash.`;
+    const thumbs = el("div", { class: "dupe-group-thumbs" });
+
+    const thumbEls = new Map<number, HTMLElement>();
+    function paintSelection(): void {
+      for (const [id, thumbEl] of thumbEls) thumbEl.classList.toggle("selected", id === keptId);
     }
-    const actions = el("div", { class: "row-actions", style: "margin-top:6px;" });
-    const keepA = el("button", { class: "btn btn-outlined" }, "Keep first, trash second");
-    keepA.addEventListener(
+
+    for (const item of group) {
+      const thumb = el("div", {
+        class: "dupe-group-thumb",
+        role: "radio",
+        tabindex: "0",
+        "aria-label": `Keep ${item.title ?? "this copy"}`,
+      });
+      const img = el("img", { src: item.urls.thumb, loading: "lazy", alt: item.title ?? "" });
+      const meta = el("div", { class: "dupe-group-meta" });
+      meta.textContent = `${item.width}×${item.height}`;
+      const preview = el(
+        "button",
+        { type: "button", class: "dupe-group-preview", title: "Open full size", "aria-label": "Open full size" },
+        icon("search", true),
+      );
+      preview.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openItemModal(item, { siblings: group });
+      });
+      thumb.append(img, preview, meta);
+      if (item.id === best.id) thumb.append(el("span", { class: "quality-badge" }, "Highest quality"));
+
+      const select = () => {
+        keptId = item.id;
+        paintSelection();
+      };
+      thumb.addEventListener("click", select);
+      thumb.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          select();
+        }
+      });
+      thumbEls.set(item.id, thumb);
+      thumbs.append(thumb);
+    }
+    paintSelection();
+
+    const actions = el("div", { class: "row-actions", style: "margin-top:10px;" });
+    const resolve = el("button", { class: "btn btn-tonal" }, "Keep selected, trash the rest");
+    resolve.addEventListener(
       "click",
       guard(async () => {
-        await api.deleteItem(pair.b.id);
+        const toTrash = group.filter((item) => item.id !== keptId);
+        await Promise.all(toTrash.map((item) => api.deleteItem(item.id)));
         row.remove();
-        toast("Moved to trash");
+        toast(toTrash.length === 1 ? "Moved 1 duplicate to trash" : `Moved ${toTrash.length} duplicates to trash`);
       }),
     );
-    const keepB = el("button", { class: "btn btn-outlined" }, "Keep second, trash first");
-    keepB.addEventListener(
-      "click",
-      guard(async () => {
-        await api.deleteItem(pair.a.id);
-        row.remove();
-        toast("Moved to trash");
-      }),
-    );
-    const keepBoth = el("button", { class: "btn btn-tonal" }, "Keep both");
-    keepBoth.addEventListener("click", () => row.remove());
-    actions.append(keepA, keepB, keepBoth);
-    row.append(thumbs, actions);
+    actions.append(resolve);
+    row.append(count, thumbs, actions);
     container.append(row);
   }
 }
 
 function openDuplicatesModal(): void {
-  const modal = openModal({ maxWidth: "560px" });
+  const modal = openModal({ maxWidth: "620px", className: "duplicates-modal-body" });
   const heading = el("h3");
   heading.textContent = "Check & merge duplicates";
   const list = el("div", { class: "sidebar-list", style: "margin-top:12px;" });

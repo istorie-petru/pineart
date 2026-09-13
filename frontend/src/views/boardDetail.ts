@@ -46,7 +46,13 @@ export function renderBoardDetail(root: HTMLElement, boardId: number): () => voi
     { class: "icon-btn", title: "Board settings", "aria-label": "Board settings" },
     icon("sliders", true),
   );
-  header.append(titleBlock, printBtn, settingsBtn);
+  // Grouped so the two sit together as one unit at the header's right edge —
+  // and so print's existing `.board-header .row-actions` rule (see
+  // styles.css) actually has something to hide, rather than relying only on
+  // the blanket `button:not(.print-keep)` rule to catch settingsBtn.
+  const headerActions = el("div", { class: "row-actions" });
+  headerActions.append(printBtn, settingsBtn);
+  header.append(titleBlock, headerActions);
 
   const subboardTabs = el("div", { class: "subboard-tabs" });
 
@@ -415,6 +421,52 @@ function openBoardDrawer(board: Board, onSaved: () => Promise<void>, onDeleted: 
   hint.innerHTML =
     'Cover image is set from within the board: open any photo\'s <strong>⋮</strong> menu → "Set as this board\'s cover".';
 
+  // A saved-search board's contents are the tags it matches, not a fixed set
+  // of pins — this is the same match-mode/tag-checkbox picker boardModal.ts
+  // uses at creation, reused here so the query isn't locked in forever.
+  let queryBlock: HTMLElement | null = null;
+  let modeSelect: HTMLSelectElement | null = null;
+  let tagList: HTMLElement | null = null;
+  if (board.is_dynamic) {
+    queryBlock = el("div", { style: "margin-top:14px;" });
+    const queryLabel = el("label");
+    queryLabel.textContent = "Saved-search filters";
+    const modeLabel = el("label", { style: "margin-top:10px;" });
+    modeLabel.textContent = "Match";
+    modeSelect = el("select") as HTMLSelectElement;
+    for (const [value, label] of [
+      ["any", "Any of these tags (OR)"],
+      ["all", "All of these tags (AND)"],
+    ]) {
+      const option = el("option", { value }) as HTMLOptionElement;
+      option.textContent = label;
+      modeSelect.append(option);
+    }
+    modeSelect.value = board.match_mode;
+    const tagsLabel = el("label", { style: "margin-top:10px;" });
+    tagsLabel.textContent = "Tags";
+    tagList = el("div", { class: "checkbox-list" });
+    queryBlock.append(queryLabel, modeLabel, modeSelect, tagsLabel, tagList);
+
+    const checkedIds = new Set(board.query_tags.map((t) => t.id));
+    void store.loadTags().then(() => {
+      tagList!.replaceChildren();
+      if (!store.tags.length) {
+        const empty = el("p", { class: "hint" });
+        empty.textContent = "No tags exist yet.";
+        tagList!.append(empty);
+        return;
+      }
+      for (const tag of store.tags) {
+        const label = el("label");
+        const checkbox = el("input", { type: "checkbox", value: String(tag.id) }) as HTMLInputElement;
+        checkbox.checked = checkedIds.has(tag.id);
+        label.append(checkbox, document.createTextNode(tag.name));
+        tagList!.append(label);
+      }
+    });
+  }
+
   const save = el("button", {
     class: "btn btn-filled",
     style: "margin-top:18px; width:100%; justify-content:center;",
@@ -427,7 +479,9 @@ function openBoardDrawer(board: Board, onSaved: () => Promise<void>, onDeleted: 
   });
   remove.textContent = "Delete board";
 
-  drawer.append(close, heading, nameLabel, nameInput, descLabel, descInput, hint, save, remove);
+  drawer.append(close, heading, nameLabel, nameInput, descLabel, descInput, hint);
+  if (queryBlock) drawer.append(queryBlock);
+  drawer.append(save, remove);
   backdrop.append(drawer);
   document.body.append(backdrop);
 
@@ -440,10 +494,23 @@ function openBoardDrawer(board: Board, onSaved: () => Promise<void>, onDeleted: 
   save.addEventListener(
     "click",
     guard(async () => {
-      await api.patchBoard(board.id, {
+      const patch: Parameters<typeof api.patchBoard>[1] = {
         name: nameInput.value.trim(),
         description: descInput.value.trim() || null,
-      });
+      };
+      if (board.is_dynamic && modeSelect && tagList) {
+        const matchMode = modeSelect.value as "all" | "any";
+        const tagIds = Array.from(
+          tagList.querySelectorAll<HTMLInputElement>("input:checked"),
+          (input) => Number(input.value),
+        );
+        if (!tagIds.length) {
+          toast("Pick at least one tag — a saved-search board with no tags matches nothing", "error");
+          return;
+        }
+        patch.query_tags = tagIds.map((id) => ({ tag_id: id, match_mode: matchMode }));
+      }
+      await api.patchBoard(board.id, patch);
       dismiss();
       await onSaved();
       toast("Board updated");

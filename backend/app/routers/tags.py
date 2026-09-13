@@ -43,7 +43,7 @@ def create_tag(payload: TagIn, db: Session = Depends(get_db)) -> TagOut:
     if payload.category_id is not None and db.get(TagCategory, payload.category_id) is None:
         raise HTTPException(status_code=404, detail="Category not found")
     tag = tag_service.get_or_create(
-        db, payload.name, payload.color, payload.category_id, payload.link_url
+        db, payload.name, payload.color, payload.category_id, payload.link_url, payload.icon
     )
     db.commit()
     db.refresh(tag)
@@ -66,6 +66,7 @@ def suggest(q: str = "", limit: int = 12, db: Session = Depends(get_db)) -> list
             color=tag.color,
             category=TagCategoryOut.model_validate(tag.category) if tag.category else None,
             link_url=tag.link_url,
+            icon=tag.icon,
             usage_count=count,
         )
         for tag, count in tag_service.suggest(db, q, max(1, min(limit, 50)))
@@ -85,6 +86,8 @@ def graph(db: Session = Depends(get_db)) -> TagGraph:
                 color=t.color,
                 category=TagCategoryOut.model_validate(t.category) if t.category else None,
                 link_url=t.link_url,
+                hide_from_feed=t.hide_from_feed,
+                icon=t.icon,
                 usage_count=counts.get(t.id, 0),
             )
             for t in tags
@@ -110,7 +113,7 @@ def list_categories(db: Session = Depends(get_db)) -> list[TagCategoryOut]:
 @router.post("/categories", response_model=TagCategoryOut, status_code=201)
 def create_category(payload: TagCategoryIn, db: Session = Depends(get_db)) -> TagCategoryOut:
     category = tag_service.get_or_create_category(
-        db, payload.name, payload.color, payload.links_enabled
+        db, payload.name, payload.color, payload.links_enabled, payload.icon
     )
     db.commit()
     db.refresh(category)
@@ -145,6 +148,8 @@ def patch_category(
         category.color = payload.color
     if payload.links_enabled is not None:
         category.links_enabled = payload.links_enabled
+    if "icon" in payload.model_fields_set:
+        category.icon = payload.icon
     db.commit()
     db.refresh(category)
     return TagCategoryOut.model_validate(category)
@@ -344,6 +349,10 @@ def patch_tag(tag_id: int, payload: TagPatch, db: Session = Depends(get_db)) -> 
         if db.get(TagCategory, payload.category_id) is None:
             raise HTTPException(status_code=404, detail="Category not found")
         tag.category_id = payload.category_id
+    if payload.hide_from_feed is not None:
+        tag.hide_from_feed = payload.hide_from_feed
+    if "icon" in payload.model_fields_set:
+        tag.icon = payload.icon
     db.commit()
     db.refresh(tag)
 

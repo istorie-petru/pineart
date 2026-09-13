@@ -11,6 +11,7 @@ import { api } from "../api";
 import { icon } from "../icons";
 import type { Item } from "../types";
 import {
+  appendTagLabel,
   confirmDialog,
   el,
   formatBytes,
@@ -552,13 +553,13 @@ export function openItemModal(item: Item, options: ItemModalOptions): void {
         // than doing nothing — the whole point of storing the link is to
         // actually get somewhere from it.
         const link = el("a", { href: tag.link_url, target: "_blank", rel: "noopener" });
-        link.textContent = tag.name;
+        appendTagLabel(link, tag);
         link.title = tag.link_url;
         const linkIcon = el("span");
         linkIcon.innerHTML = icon("extlink", true);
         chip.append(link, linkIcon);
       } else {
-        chip.textContent = tag.name;
+        appendTagLabel(chip, tag);
       }
       const removeBtn = el("button", { type: "button", "aria-label": `Remove ${tag.name}` }, "×");
       removeBtn.addEventListener(

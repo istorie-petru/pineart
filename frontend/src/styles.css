@@ -451,6 +451,11 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 }
 .link-modal-body input[type="text"], .simple-modal-body input[type="text"],
 .simple-modal-body textarea, .simple-modal-body select { width: 100%; }
+/* The `.modal` shell itself caps its height and clips overflow (rounded
+   corners, animation), so a body that can grow past that — like a duplicates
+   review with dozens of groups — needs its own scroll region rather than
+   silently clipping the bottom half of the list. */
+.duplicates-modal-body { max-height: 80vh; overflow-y: auto; }
 .icon-picker { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 6px; }
 .icon-picker button {
   aspect-ratio: 1; border-radius: 10px; border: 1px solid var(--color-border);
@@ -497,6 +502,7 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 .new-board-card:hover { background: var(--color-surface); color: var(--color-text); }
 
 .board-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
+.board-header .row-actions { display: flex; align-items: center; gap: 8px; }
 .subboard-tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
 .drag-item { cursor: grab; }
 .drag-item:active, .drag-item .handle:active { cursor: grabbing; }
@@ -601,10 +607,18 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 /* One continuous page now, not a secondary navbar switching between tab
    panels — every section renders at once, in document order, separated by a
    divider and its own heading. */
-.settings-section-divider { border: none; border-top: 1px solid var(--color-border); margin: 32px 0 24px; }
-.settings-section-title { font-size: 15px; margin: 0 0 16px; }
+.settings-header-row { margin-bottom: 32px; }
+.settings-section-divider { border: none; border-top: 1px solid var(--color-border); margin: 40px 0 28px; }
+.settings-section-title { font-size: 15px; margin: 0 0 20px; }
 .settings-panel { display: block; }
-.settings-group { background: var(--color-surface); border-radius: var(--radius-card); padding: 16px 18px; margin-bottom: 16px; }
+/* Subsections (Account, Data Management, …) used to be shaded cards; a plain
+   divider between them reads as one continuous page rather than a stack of
+   boxes, and matches the section-level dividers above. No border on the
+   first subsection in a panel — the section heading above it already marks
+   where it starts. */
+.settings-group { padding: 22px 0; }
+.settings-group:first-child { padding-top: 0; }
+.settings-group + .settings-group { border-top: 1px solid var(--color-border); }
 .settings-group h4 { margin: 0 0 12px; font-size: 13px; }
 .field-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 13px; gap: 10px; }
 .field-col label { display: block; font-size: 12px; color: var(--color-text-muted); margin: 0 0 5px; }
@@ -875,17 +889,35 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 }
 .card.marquee-hover { outline: 2px dashed var(--color-accent); outline-offset: -2px; }
 
-/* ---------- near-duplicate review (Settings → Tags → Cleanup) ---------- */
-.dupe-pair {
+/* ---------- near-duplicate review (Settings → Tags → Cleanup, and Data
+   Management → Check & merge duplicates) ----------
+   A group can be a pair or a handful of copies of the same picture (a scan
+   reports overlapping *pairs*, collapsed client-side into groups — see
+   `groupNearDuplicates` in settings.ts) — thumbnails wrap onto more than one
+   row rather than assuming exactly two. */
+.dupe-group {
   border: 1px solid var(--color-border); border-radius: var(--radius-sm);
   padding: 10px; margin-bottom: 10px;
 }
-.dupe-pair-thumbs { display: flex; gap: 8px; }
-.dupe-pair-thumbs img {
-  width: 50%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; cursor: pointer;
+.dupe-group-thumbs { display: flex; gap: 8px; flex-wrap: wrap; }
+.dupe-group-thumb {
+  position: relative; width: 92px; flex-shrink: 0; cursor: pointer; border-radius: 8px;
+  outline: 2px solid transparent; outline-offset: 2px; transition: var(--transition-fast);
 }
-.dupe-pair .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-.dupe-pair .row-actions button { font-size: 12px; padding: 6px 10px; }
+.dupe-group-thumb.selected { outline-color: var(--color-accent); }
+.dupe-group-thumb img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; display: block; }
+.dupe-group-preview {
+  position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55); color: #fff; border: none; display: flex; align-items: center;
+  justify-content: center; cursor: pointer;
+}
+.quality-badge {
+  position: absolute; top: 4px; left: 4px; font-size: 9px; font-weight: 600; padding: 2px 6px;
+  border-radius: 8px; background: var(--color-accent); color: #fff; pointer-events: none;
+}
+.dupe-group-meta { font-size: 10.5px; color: var(--color-text-muted); text-align: center; margin-top: 3px; }
+.dupe-group .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.dupe-group .row-actions button { font-size: 12px; padding: 6px 10px; }
 
 /* ---------- connectivity banner ----------
    Shown when the backend stops responding mid-session — a self-hosted app

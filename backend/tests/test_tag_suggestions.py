@@ -90,4 +90,4 @@ def test_limit_is_respected_and_capped(tagged):
 
 def test_suggestions_carry_what_the_ui_renders(tagged):
     entry = tagged.get("/api/tags/suggest", params={"q": "land"}).json()[0]
-    assert set(entry) == {"id", "name", "slug", "color", "category", "link_url", "usage_count"}
+    assert set(entry) == {"id", "name", "slug", "color", "category", "link_url", "icon", "usage_count"}

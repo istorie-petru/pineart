@@ -425,3 +425,85 @@ export function tagColor(tag: { id: number; color: string | null; category?: { c
   const raw = tag.color || tag.category?.color || palette[tag.id % palette.length];
   return contrastSafeColor(raw);
 }
+
+/**
+ * A tag's icon: its own if it has one, else its category's — the same
+ * "own value wins, category is the default" precedence `tagColor` uses.
+ * Unlike colour there is no synthetic fallback; a tag with no icon of its
+ * own and no categorized default simply has none. Returns a key into
+ * `ICONS` (see icons.ts), not markup — callers render it with `icon()`.
+ */
+export function tagIconKey(
+  tag: { icon?: string | null; category?: { icon?: string | null } | null } | null | undefined,
+): string | null {
+  return tag?.icon || tag?.category?.icon || null;
+}
+
+/**
+ * Appends a tag's resolved icon (if any) followed by its name, as real DOM
+ * nodes rather than an HTML string — a tag name can contain `<`/`&`
+ * (anything a person can type), so it goes in as a text node; only the icon
+ * key, which only ever comes from the fixed picker set, goes in as markup.
+ */
+export function appendTagLabel(
+  container: HTMLElement,
+  tag: { name: string; icon?: string | null; category?: { icon?: string | null } | null },
+): void {
+  const key = tagIconKey(tag);
+  if (key) container.insertAdjacentHTML("beforeend", icon(key, true));
+  container.append(document.createTextNode(tag.name));
+}
+
+/**
+ * A grid of icon buttons with at most one active at a time — the picker UI
+ * shared by link pills, tag categories and tags (see `DECORATIVE_ICON_KEYS`
+ * in icons.ts). With `allowNone`, a leading "—" button clears the selection
+ * back to null — links always carry an icon, but a tag or category's icon is
+ * optional, and needs a way to say "none" rather than only "pick one".
+ */
+export function buildIconPicker(
+  keys: readonly string[],
+  initial: string | null | undefined,
+  options: { allowNone?: boolean; onPick?: (key: string | null) => void } = {},
+): { element: HTMLElement; get: () => string | null; set: (key: string | null) => void } {
+  const picker = el("div", { class: "icon-picker" });
+  let chosen: string | null = initial ?? null;
+
+  const paint = () => {
+    picker.querySelectorAll<HTMLButtonElement>("button").forEach((button) => {
+      button.classList.toggle("selected", (button.dataset.key ?? null) === chosen);
+    });
+  };
+
+  if (options.allowNone) {
+    const noneBtn = el(
+      "button",
+      { type: "button", title: "No icon", "aria-label": "No icon", class: "icon-picker-none" },
+      "—",
+    );
+    noneBtn.addEventListener("click", () => {
+      chosen = null;
+      paint();
+      options.onPick?.(chosen);
+    });
+    picker.append(noneBtn);
+  }
+  for (const key of keys) {
+    const button = el("button", { type: "button", title: key, "data-key": key }, icon(key, true));
+    button.addEventListener("click", () => {
+      chosen = key;
+      paint();
+      options.onPick?.(chosen);
+    });
+    picker.append(button);
+  }
+  paint();
+  return {
+    element: picker,
+    get: () => chosen,
+    set: (key) => {
+      chosen = key;
+      paint();
+    },
+  };
+}

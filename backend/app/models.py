@@ -114,6 +114,10 @@ class TagCategory(Base):
     # category, not of each tag, so a Creator category never needs its tags
     # individually opted in one at a time.
     links_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # A default icon for every tag filed under this category — a tag's own
+    # icon (see `Tag.icon`) wins when it has one, the same precedence `color`
+    # uses.
+    icon: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     tags: Mapped[list["Tag"]] = relationship(back_populates="category")
 
@@ -141,6 +145,14 @@ class Tag(Base):
     # `links_enabled`, but not enforced here — clearing a tag's category should
     # not have to silently destroy a URL someone typed in.
     link_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Opt a tag out of passive browsing (see `services/queries.build_query`):
+    # an item carrying this tag is skipped by the Feed and by any other
+    # listing with no board of its own, but still shows up in a board it
+    # belongs to and in a search that names the tag explicitly.
+    hide_from_feed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # This tag's own icon. Falls back to the category's icon when unset — see
+    # `TagCategory.icon` — resolved client-side the same way `color` is.
+    icon: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     items: Mapped[list[Item]] = relationship(secondary="item_tags", back_populates="tags")
     category: Mapped["TagCategory | None"] = relationship(back_populates="tags", lazy="joined")

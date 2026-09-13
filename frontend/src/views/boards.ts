@@ -14,7 +14,7 @@ import { Grid } from "../components/grid";
 import { openCropModal } from "../components/cropModal";
 import { openItemModal } from "../components/itemModal";
 import { openLinkModal } from "../components/linkModal";
-import { pickBoard, promptTags } from "../components/pickers";
+import { openTagsEditorModal, pickBoard, promptTags } from "../components/pickers";
 import { SearchBar } from "../components/searchBar";
 import { icon } from "../icons";
 import * as router from "../router";
@@ -177,10 +177,16 @@ export function renderBoardsView(root: HTMLElement, sub: "unorganized" | "organi
     // click open the photo instead of selecting it.
     isSelecting: () => bulkMode,
     emptyMessage: "No items match this search.",
+    // Same action set as the board detail's ⋮ menu (minus "set as this
+    // board's cover", which only makes sense inside one) — one menu learned
+    // once and found everywhere, rather than the Feed's cards offering fewer
+    // per-item actions than a board's do.
     menuActions: [
       { action: "avatar", label: "Set as avatar" },
       { action: "banner", label: "Set as banner" },
-      { action: "add_to_board", label: "Add to board" },
+      { action: "tags", label: "Edit tags", icon: "tag", dividerBefore: true },
+      { action: "add_to_board", label: "Add to board", icon: "addBoard" },
+      { action: "delete", label: "Delete photo", icon: "trash" },
     ],
     // Random isn't a real backend sort key — it's the separate `random` flag.
     // The backend hands back a seeded shuffle whose `next_cursor` carries that
@@ -209,6 +215,29 @@ export function renderBoardsView(root: HTMLElement, sub: "unorganized" | "organi
           if (!board) return;
           await api.bulk({ item_ids: [item.id], action: "add_to_board", board_id: board.id });
           toast(`Added to ${board.name}`);
+        })();
+        return;
+      }
+      if (action === "tags") {
+        openTagsEditorModal(item, (updated) => {
+          const index = grid.items.findIndex((i) => i.id === updated.id);
+          if (index >= 0) grid.items[index] = updated;
+        });
+        return;
+      }
+      if (action === "delete") {
+        void guard(async () => {
+          if (!(await confirmDialog(`Move "${item.title ?? "this photo"}" to the trash?`, "Move to trash"))) return;
+          await api.deleteItem(item.id);
+          grid.removeItem(item.id);
+          toast("Moved to trash", "info", {
+            label: "Undo",
+            onClick: guard(async () => {
+              await api.restoreItem(item.id);
+              void grid.reload();
+              toast("Restored");
+            }),
+          });
         })();
         return;
       }
