@@ -164,7 +164,11 @@ proxy or Cloudflare Tunnel at that port (see `backend/deploy/Caddyfile.example`
 or [`deploy/README.md`](deploy/README.md)), open the resulting URL in a
 browser, and you'll land on the one-time **setup page**: paste in the token
 printed to `sudo journalctl -u artboard`, pick a password, and that's your
-login from then on.
+login from then on. If that log has scrolled past by the time you get to
+it, `sudo artboard-ctl show-setup-token` restarts the backend and prints a
+fresh one directly, rather than making you scroll for it — or skip the
+setup page entirely with `sudo artboard-ctl set-password`, which sets a
+password straight away with no token involved.
 
 Deploying to a fork, or from a separate infra repo instead of in-tree, works
 the same way but with an explicit override: `sudo ARTBOARD_REPO_URL=<url> -E
@@ -252,20 +256,26 @@ directly to the internet without one of the above in front of it.
   `sudo systemctl status artboard artboard-frontend`. Logs:
   `sudo journalctl -u artboard -f` / `-u artboard-frontend -f`.
 - **403 "This host is not allowed" through a reverse proxy/tunnel.** `vite
-  preview` rejects any `Host` header it doesn't recognize by default.
-  Uncomment `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` in
-  `/srv/artboard/shared/.env`, set it to your public hostname, and
-  `sudo systemctl restart artboard-frontend`.
+  preview` rejects any `Host` header it doesn't recognize by default. Fix:
+  `sudo artboard-ctl set-hostname your.hostname.here` — sets the right
+  variable in `/srv/artboard/shared/.env` and restarts `artboard-frontend`
+  for you. (The Cloudflare Tunnel installer in `deploy/` already runs this
+  automatically; this only comes up on the Caddy/nginx path, or if you
+  change the hostname later.)
 - **Update seemed to fail / site is down after `artboard-ctl update`.** It
   should have already rolled itself back — re-check `sudo systemctl status
   artboard artboard-frontend`. If it's still down,
   `sudo journalctl -u artboard -n 100` shows what the last release logged
   before failing its health check.
-- **Forgot the login password.** From the server:
-  `sudo -u artboard bash -c "cd /srv/artboard/current/backend && set -a; source /srv/artboard/shared/.env; set +a; .venv/bin/python -m app.cli set-password"`.
-  This revokes every existing session, so a forgotten password can't be
-  worked around by an already-open browser — it does not touch your images
-  or tags.
+- **Forgot the login password, or can't find the one-time setup token in the
+  logs.** `sudo artboard-ctl set-password` sets a new password directly, no
+  token or current password needed — the trust boundary is shell access to
+  the box, not either of those. It revokes every existing session, so this
+  can't be worked around by an already-open browser, and it does not touch
+  your images or tags. If you'd rather use the normal claim-the-instance
+  screen instead, `sudo artboard-ctl show-setup-token` restarts the backend
+  and prints the fresh token straight from the log line that generates it,
+  instead of you hunting for it by hand.
 - **Discovery/Feed not appearing.** Confirm `ARTBOARD_SEARXNG_URL` is set in
   `shared/.env`, that `sudo systemctl status artboard-searxng` is healthy,
   and that Discovery is turned on under Settings → Discovery in the app —

@@ -12,8 +12,11 @@
 #   rm -rf /tmp/bootstrap   # install already copied itself to /usr/local/bin
 #
 # Day to day, once installed:
-#   sudo artboard-ctl update    # deploy latest main, atomic swap, auto-rollback
-#   sudo artboard-ctl remove    # tear down (destructive, confirms)
+#   sudo artboard-ctl update                    # deploy latest main, atomic swap, auto-rollback
+#   sudo artboard-ctl set-hostname <hostname>   # allow a public hostname through vite preview's Host check
+#   sudo artboard-ctl set-password              # set/reset the login password directly, no token needed
+#   sudo artboard-ctl show-setup-token          # restart + surface a fresh one-time claim token
+#   sudo artboard-ctl remove                    # tear down (destructive, confirms)
 #
 # `install --discovery` additionally sets up SearXNG natively (uwsgi, no
 # Docker) for the Feed -- see "Discovery / SearXNG" below. Once enabled,
@@ -418,6 +421,20 @@ set_searxng_url_in_env() {
   fi
 }
 
+# Unlike set_searxng_url_in_env (fill-once, never overwrite), this always
+# sets the given value -- 'set-hostname' is an explicit, repeatable command
+# a user runs whenever the public hostname changes, not a one-time default.
+set_vite_allowed_hosts_in_env() {
+  local hosts="$1"
+  if grep -q '^__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s|^__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=.*|__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=${hosts}|" "$ENV_FILE"
+  elif grep -q '^# __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s|^# __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=.*|__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=${hosts}|" "$ENV_FILE"
+  else
+    echo "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=${hosts}" >> "$ENV_FILE"
+  fi
+}
+
 health_check_searxng() {
   wait_for_url "http://127.0.0.1:${SEARXNG_PORT}/healthz"
 }
@@ -528,15 +545,18 @@ ARTBOARD_MAX_UPLOAD_BYTES=33554432
 # over this one once set there.
 # ARTBOARD_SEARXNG_URL=http://127.0.0.1:8888/
 
-# Read by artboard-frontend.service (vite preview), not the backend -- it is
-# NOT an ARTBOARD_-prefixed setting, it lives here only because both units
-# share this same EnvironmentFile. Whatever reverse proxy or tunnel sits in
-# front of this box (Caddy, a Cloudflare Tunnel, ...) forwards the original
-# Host header through to vite preview, and Vite rejects any Host it doesn't
-# recognize by default (DNS-rebinding protection) -- localhost and bare IPs
-# are allowed automatically, a real hostname is not. Uncomment and set this
-# to your public hostname(s) (comma-separated) or the frontend will answer
-# every request with "403 This host is not allowed".
+# Once this box is reachable at a public hostname (Caddy, nginx, a
+# Cloudflare Tunnel), run this ONE command instead of editing the line
+# below by hand:
+#
+#   sudo artboard-ctl set-hostname your.hostname.here
+#
+# Without it, the frontend answers every request with "403 -- This host is
+# not allowed": vite preview rejects any Host header it doesn't recognize by
+# default (DNS-rebinding protection), and localhost/bare IPs are the only
+# ones it allows automatically. 'set-hostname' sets the line below and
+# restarts artboard-frontend for you -- the manual version exists only for
+# anyone who'd rather not have a wrapper script touch their config file.
 # __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=artboard.example.com
 EOF
   chown root:"$APP_USER" "$ENV_FILE"
@@ -797,7 +817,16 @@ cmd_update() {
 
   local tmp_clone
   tmp_clone="$(mktemp -d)"
-  trap 'rm -rf "$tmp_clone"' RETURN
+  # Self-clearing: `trap ... RETURN` in bash is NOT scoped to the function
+  # that sets it -- left as `trap '...' RETURN` alone, it fires on every
+  # later function return for the rest of the script's execution, not just
+  # this function's. By the time it fires again from some unrelated later
+  # function (e.g. setup_discovery, called from cmd_install after this one
+  # returns), $tmp_clone is a local from a stack frame that no longer
+  # exists, and `set -u` kills the whole script with "unbound variable" --
+  # after the actual deploy already succeeded. Clearing the trap as part of
+  # its own action makes it fire exactly once, for this function's return.
+  trap 'rm -rf "$tmp_clone"; trap - RETURN' RETURN
 
   log "Cloning ${repo_url} (${GIT_BRANCH})..."
   git clone --depth 1 --branch "$GIT_BRANCH" "$repo_url" "$tmp_clone"
@@ -936,6 +965,81 @@ cmd_update() {
   fi
 }
 
+cmd_set_password() {
+  require_root
+  if [ ! -x "${CURRENT_LINK}/backend/.venv/bin/python" ]; then
+    err "${CURRENT_LINK}/backend/.venv/bin/python not found -- has 'install' been run yet?"
+    exit 1
+  fi
+  # Wraps `app.cli set-password` (force_set_password in app/services/auth.py):
+  # sets the password with no checks -- no current password, no setup token
+  # -- and revokes every existing session. Works whether this is a
+  # never-claimed instance (lost/unreadable setup token) or a normal forgot-
+  # password recovery; the trust boundary is shell access to this box, not
+  # a token, so a check would be theatre either way. Prompts interactively.
+  log "Setting a new password (this revokes all existing sessions)..."
+  su -s /bin/bash "$APP_USER" -c "
+    set -euo pipefail
+    set -a; source '${ENV_FILE}'; set +a
+    cd '${CURRENT_LINK}/backend'
+    .venv/bin/python -m app.cli set-password
+  "
+}
+
+cmd_show_setup_token() {
+  require_root
+  if [ ! -f "$ENV_FILE" ]; then
+    err "${ENV_FILE} not found -- has 'install' been run yet?"
+    exit 1
+  fi
+  # The token lives in memory inside the running uvicorn process (see
+  # ensure_setup_token in app/services/auth.py) -- it is deliberately never
+  # written anywhere reachable over HTTP, and a separate process (this
+  # script) can't read another process's memory. Restarting is the only way
+  # to get at a fresh one: main.py's lifespan hook generates and logs it
+  # again on every startup, "regenerated on restart" as the log line itself
+  # says. This just automates "restart, then go find it in the log" so
+  # nobody has to grep years of journal output by hand.
+  log "Restarting ${APP_NAME}.service to generate a fresh setup token..."
+  systemctl restart "${APP_NAME}.service"
+  if ! health_check_backend; then
+    err "Backend did not come back up after restart -- check 'journalctl -u ${APP_NAME}'."
+    exit 1
+  fi
+  local token
+  token="$(journalctl -u "${APP_NAME}.service" -n 50 --no-pager 2>/dev/null \
+    | grep -A1 "one-time setup token" | tail -n1 | tr -d '[:space:]')"
+  if [ -z "$token" ]; then
+    err "No setup token found -- a password is probably already set on this instance."
+    err "To reset it instead, use: artboard-ctl set-password"
+    exit 1
+  fi
+  log "Setup token: ${token}"
+  log "Open the app and enter this token to claim the instance."
+}
+
+cmd_set_hostname() {
+  require_root
+  local hosts="${1:-}"
+  if [ -z "$hosts" ]; then
+    err "Usage: artboard-ctl set-hostname <hostname>[,<hostname>...]"
+    exit 2
+  fi
+  if [ ! -f "$ENV_FILE" ]; then
+    err "${ENV_FILE} not found -- has 'install' been run yet?"
+    exit 1
+  fi
+  # This is the whole fix for Vite's DNS-rebinding Host-header check
+  # (server/preview.allowedHosts in frontend/vite.config.ts) -- a one-line
+  # command instead of "go find the right line in an .env file and know
+  # that vite.config.ts is even the thing reading it". Whatever puts this
+  # box behind a public hostname -- Caddy, nginx, a Cloudflare Tunnel --
+  # ends with running this once.
+  set_vite_allowed_hosts_in_env "$hosts"
+  systemctl restart "${APP_NAME}-frontend.service"
+  log "Set __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=${hosts} in ${ENV_FILE} and restarted ${APP_NAME}-frontend.service."
+}
+
 cmd_remove() {
   require_root
   warn "This will stop ${APP_NAME}, delete its systemd units, remove the"
@@ -969,11 +1073,14 @@ cmd_remove() {
 
 # --- dispatch -------------------------------------------------------------------
 case "${1:-}" in
-  install) cmd_install "${2:-}" ;;
-  update)  cmd_update ;;
-  remove)  cmd_remove ;;
+  install)          cmd_install "${2:-}" ;;
+  update)           cmd_update ;;
+  remove)           cmd_remove ;;
+  set-hostname)     cmd_set_hostname "${2:-}" ;;
+  set-password)     cmd_set_password ;;
+  show-setup-token) cmd_show_setup_token ;;
   *)
-    echo "Usage: artboard-ctl {install [--discovery]|update|remove}" >&2
+    echo "Usage: artboard-ctl {install [--discovery]|update|remove|set-hostname <hostname>[,...]|set-password|show-setup-token}" >&2
     exit 2
     ;;
 esac

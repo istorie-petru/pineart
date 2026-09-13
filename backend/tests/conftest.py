@@ -53,22 +53,30 @@ def clean_tables(migrated_database):  # noqa: ANN001
     auth_service.reset_throttle_for_tests()
     from sqlalchemy import text
 
-    # Two separate transactions, not one: sqlite3's stdlib driver only opens an
-    # implicit transaction before DML, not before PRAGMA. If "ON" shared a
-    # transaction with the DELETEs below, it would run *after* that implicit
-    # BEGIN and silently no-op (SQLite: "this pragma is a no-op within a
-    # transaction") — leaving FK enforcement OFF on whichever pooled connection
-    # served this cleanup, for the rest of the test run. That is exactly the
-    # bug this used to have: a rule row whose category had just been deleted
-    # would still be sitting in `tag_graph_rules` the next time that
-    # connection got reused, because the ON DELETE CASCADE never re-armed.
-    with engine.begin() as connection:
+    # One checked-out connection, not two `engine.begin()` blocks: the pool
+    # holds more than one physical SQLite connection, so two separate
+    # `engine.begin()` calls can each grab a *different* one — the "ON" then
+    # lands on a connection nobody just turned "OFF", while the one that's
+    # actually left with FK enforcement off goes back into the pool and gets
+    # handed to a later test. That is exactly the bug this used to have: a
+    # rule row whose category had just been deleted would still be sitting in
+    # `tag_graph_rules` on the next request served by that connection, because
+    # the ON DELETE CASCADE never re-armed. Explicit `.commit()` calls between
+    # statements (rather than one `.begin()`) are what let "ON" apply
+    # immediately after "OFF" on this same connection — sqlite3's stdlib
+    # driver only opens an implicit transaction before DML, not before
+    # PRAGMA, so sharing one transaction across both would run "ON" after that
+    # implicit BEGIN and silently no-op (SQLite: "this pragma is a no-op
+    # within a transaction").
+    with engine.connect() as connection:
         connection.execute(text("PRAGMA foreign_keys=OFF"))
+        connection.commit()
         for table in reversed(Base.metadata.sorted_tables):
             connection.execute(text(f"DELETE FROM {table.name}"))
         connection.execute(text("DELETE FROM items_fts"))
-    with engine.begin() as connection:
+        connection.commit()
         connection.execute(text("PRAGMA foreign_keys=ON"))
+        connection.commit()
 
 
 TEST_PASSWORD = "correct-horse-battery"

@@ -63,8 +63,7 @@ export function renderBoardsView(root: HTMLElement, sub: "unorganized" | "organi
   function renderProfile(): void {
     const settings = store.settings;
     name.textContent = settings?.["profile.display_name"] ?? "Art Archive";
-    description.textContent =
-      settings?.["profile.description"] || "Set a display name and description in Settings → Profile.";
+    description.textContent = settings?.["profile.description"] || "";
     banner.style.background = settings?.["profile.banner_url"]
       ? `url(${settings["profile.banner_url"]}) center/cover`
       : "linear-gradient(120deg, #6d597a, #457b9d, #264653)";
@@ -135,17 +134,36 @@ export function renderBoardsView(root: HTMLElement, sub: "unorganized" | "organi
   const bulkClear = el("button", {}, "Clear");
   bulkBar.append(bulkCount, bulkTag, bulkBoard, bulkDelete, bulkClear);
 
+  // Bulk select is a mode, not just "something is currently selected" — it
+  // survives a page refresh (sessionStorage) so reloading mid-tagging session
+  // doesn't silently drop back into "click opens the image" behaviour. The
+  // actual selected ids are not restored (the grid has to refetch its items
+  // first), only the mode itself; `selected` starts empty again and the mode
+  // is exited by hand via Clear.
+  const BULK_MODE_KEY = "pineart.bulkSelectMode.unorganized";
+  let bulkMode = sessionStorage.getItem(BULK_MODE_KEY) === "1";
+  function setBulkMode(active: boolean): void {
+    bulkMode = active;
+    try {
+      if (active) sessionStorage.setItem(BULK_MODE_KEY, "1");
+      else sessionStorage.removeItem(BULK_MODE_KEY);
+    } catch {
+      /* private mode: losing bulk-select mode across a refresh is a nicety, not a bug */
+    }
+  }
+
   const selected = new Set<number>();
   function syncBulk(): void {
     bulkCount.textContent = `${selected.size} selected`;
-    bulkBar.classList.toggle("active", selected.size > 0);
+    bulkBar.classList.toggle("active", bulkMode);
     // Marks the grid while selection mode is on, so the cursor and the
     // permanently-visible checkboxes tell you clicks now select rather than open.
-    grid.gridElement.classList.toggle("selecting", selected.size > 0);
+    grid.gridElement.classList.toggle("selecting", bulkMode);
   }
   function clearSelection(): void {
     selected.clear();
     grid.gridElement.querySelectorAll(".card.selected").forEach((c) => c.classList.remove("selected"));
+    setBulkMode(false);
     syncBulk();
   }
 
@@ -153,7 +171,11 @@ export function renderBoardsView(root: HTMLElement, sub: "unorganized" | "organi
     minColumnWidth: 190,
     withSelect: true,
     infiniteScroll: store.settings?.["collection.infinite_scroll"] !== false,
-    isSelecting: () => selected.size > 0,
+    // Bulk mode itself gates opening an image, not merely "something is
+    // selected" — otherwise deselecting the last item (or restoring the mode
+    // after a refresh, before anything is re-selected) would let a plain
+    // click open the photo instead of selecting it.
+    isSelecting: () => bulkMode,
     emptyMessage: "No items match this search.",
     menuActions: [
       { action: "avatar", label: "Set as avatar" },
@@ -172,8 +194,12 @@ export function renderBoardsView(root: HTMLElement, sub: "unorganized" | "organi
         : api.listItems({ q: query, sort, cursor }),
     onOpen: (item) => openItemModal(item, { siblings: grid.items, onDeleted: (i) => grid.removeItem(i.id) }),
     onToggleSelect: (item, isSelected) => {
-      if (isSelected) selected.add(item.id);
-      else selected.delete(item.id);
+      if (isSelected) {
+        selected.add(item.id);
+        setBulkMode(true);
+      } else {
+        selected.delete(item.id);
+      }
       syncBulk();
     },
     onMenuAction: (action, item) => {
@@ -197,6 +223,10 @@ export function renderBoardsView(root: HTMLElement, sub: "unorganized" | "organi
       });
     },
   });
+
+  // Reflects a bulk-select mode restored from sessionStorage before anything
+  // has been (re-)selected yet.
+  syncBulk();
 
   bulkClear.addEventListener("click", clearSelection);
   bulkTag.addEventListener(

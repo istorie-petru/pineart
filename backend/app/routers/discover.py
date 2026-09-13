@@ -29,12 +29,11 @@ MAX_REMOTE_BYTES = 32 * 1024 * 1024
 
 
 def _searxng_base(db: Session) -> str:
-    """The DB setting wins over the env var: it's what the Settings UI edits."""
-    if not settings_store.get(db, "discovery.enabled"):
-        raise HTTPException(
-            status_code=409,
-            detail="Discovery is disabled. Enable it in Settings and set a SearXNG URL.",
-        )
+    """The DB setting wins over the env var: it's what the Settings UI edits.
+
+    Discovery has no separate on/off switch — it's available as soon as a
+    SearXNG URL is configured, and hidden (here and in the nav) otherwise.
+    """
     url = str(settings_store.get(db, "discovery.searxng_url") or "").strip()
     if not url:
         url = get_config().searxng_url.strip()

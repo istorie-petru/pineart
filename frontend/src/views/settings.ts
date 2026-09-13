@@ -1,9 +1,11 @@
 /**
  * Settings — architecture §6.5.
  *
- * Seven tabs. Tag graph, Trash and Backup live here as tabs rather than as
- * top-level nav destinations: none of them is something you open as often as
- * your own collection, so none of them earns a nav slot.
+ * One continuous page, not a secondary navbar switching between tab panels:
+ * every section is on screen at once, in order, separated by a divider and
+ * its own heading. Tag graph, Trash and Data management live here rather
+ * than as top-level nav destinations — none of them is something you open as
+ * often as your own collection, so none earns a nav slot.
  */
 
 import { api } from "../api";
@@ -17,7 +19,7 @@ import { icon } from "../icons";
 import * as router from "../router";
 import { store } from "../store";
 import type { GraphNode, SortKey, TagCategory } from "../types";
-import { confirmDialog, contrastSafeColor, el, guard, toast } from "../ui";
+import { confirmDialog, contrastSafeColor, el, guard, openModal, toast } from "../ui";
 
 /** Reads the saved physics preference, falling back to the built-in defaults
  * before settings have loaded or if a key is somehow missing. */
@@ -32,15 +34,19 @@ function graphForcesFromSettings(): TagGraphForces {
   };
 }
 
-const TABS: { id: string; label: string; wide?: boolean }[] = [
-  { id: "profile", label: "Profile" },
-  { id: "appearance", label: "Appearance" },
-  { id: "collection", label: "Collection" },
-  { id: "tags", label: "Tags", wide: true },
-  { id: "discovery", label: "Discovery" },
-  { id: "trash", label: "Trash", wide: true },
-  { id: "backup", label: "Backup" },
-];
+// A bookmark or the router's default (`{ tab: "profile" }`) may still name a
+// tab from the old tabbed layout — this is where that name lands on the new
+// single page. "collection" and "backup" no longer exist as their own
+// sections (merged into "discovery" and "profile" respectively).
+const SECTION_ANCHORS: Record<string, string> = {
+  profile: "profile",
+  appearance: "appearance",
+  collection: "discovery",
+  discovery: "discovery",
+  tags: "tags",
+  trash: "trash",
+  backup: "profile",
+};
 
 export function renderSettings(root: HTMLElement, activeTab: string): () => void {
   const section = el("section", { class: "view active" });
@@ -56,31 +62,22 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     toggleAddImagesMenu(addImagesBtn);
   });
   headerRow.append(heading, addImagesBtn);
-  const tabBar = el("div", { class: "settings-tabs" });
-  section.append(headerRow, tabBar);
-
-  const panels = new Map<string, HTMLElement>();
-  for (const tab of TABS) {
-    const button = el("button", { "data-tab": tab.id });
-    button.textContent = tab.label;
-    button.addEventListener("click", () => router.navigate({ view: "settings", tab: tab.id }));
-    tabBar.append(button);
-
-    const panel = el("div", { class: `settings-panel${tab.wide ? " wide" : ""}` });
-    panels.set(tab.id, panel);
-    section.append(panel);
-  }
+  section.append(headerRow);
   root.replaceChildren(section);
+
+  /** One section: a divider (except the very first) then a heading, then
+   * whatever the caller appends into the returned panel. */
+  function addSection(id: string, title: string): HTMLElement {
+    if (section.childElementCount > 1) section.append(el("hr", { class: "settings-section-divider" }));
+    const sectionHeading = el("h3", { class: "settings-section-title", id: `settings-${id}` });
+    sectionHeading.textContent = title;
+    const panel = el("div", { class: "settings-panel" });
+    section.append(sectionHeading, panel);
+    return panel;
+  }
 
   let graph: TagGraphHandle | null = null;
   let trashGrid: Grid | null = null;
-
-  function activate(tabId: string): void {
-    tabBar.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tabId));
-    panels.forEach((panel, id) => panel.classList.toggle("active", id === tabId));
-    if (tabId === "tags") void buildTagsPanel();
-    if (tabId === "trash") void buildTrashPanel();
-  }
 
   const settings = store.settings;
   if (!settings) {
@@ -90,8 +87,9 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
 
   // ---------- Profile ----------
   {
-    const panel = panels.get("profile")!;
-    const group = el("div", { class: "settings-group" }, "<h4>Display name &amp; description</h4>");
+    const panel = addSection("profile", "Profile");
+
+    const group = el("div", { class: "settings-group" }, "<h4>Account</h4>");
     const col = el("div", { class: "field-col" });
     const nameLabel = el("label");
     nameLabel.textContent = "Name";
@@ -102,9 +100,9 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     const descInput = el("textarea", { rows: "2" }) as HTMLTextAreaElement;
     descInput.value = settings["profile.description"];
     col.append(nameLabel, nameInput, descLabel, descInput);
-    const save = el("button", { class: "btn btn-filled" });
-    save.textContent = "Save profile";
-    save.addEventListener(
+    const saveProfile = el("button", { class: "btn btn-filled" });
+    saveProfile.textContent = "Save profile";
+    saveProfile.addEventListener(
       "click",
       guard(async () => {
         await store.saveSettings({
@@ -114,26 +112,55 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
         toast("Profile saved");
       }),
     );
-    group.append(col, save);
 
-    const media = el("div", { class: "settings-group" }, "<h4>Avatar &amp; banner</h4>");
-    const previewRow = el("div", { class: "preview-row" });
-    const miniAvatar = el("div", { class: "mini-avatar" });
-    const miniBanner = el("div", { class: "mini-banner" });
-    if (settings["profile.avatar_url"]) miniAvatar.style.backgroundImage = `url(${settings["profile.avatar_url"]})`;
-    if (settings["profile.banner_url"]) miniBanner.style.backgroundImage = `url(${settings["profile.banner_url"]})`;
-    previewRow.append(miniAvatar, miniBanner);
-    const hint = el("p", { class: "hint" });
-    hint.innerHTML =
-      'Set from any photo in your collection: open its <strong>⋮</strong> menu → "Set as avatar" or "Set as banner", then crop.';
-    media.append(previewRow, hint);
+    const divider = el("div", { style: "height:1px; background:var(--color-border); margin:18px 0;" });
 
-    panel.append(group, media, buildAccountGroup(), buildResetGroup());
+    const pwCol = el("div", { class: "field-col" });
+    const currentLabel = el("label");
+    currentLabel.textContent = "Current password";
+    const currentInput = el("input", { type: "password", autocomplete: "current-password" }) as HTMLInputElement;
+    const newLabel = el("label");
+    newLabel.textContent = "New password (10+ characters)";
+    const newInput = el("input", { type: "password", autocomplete: "new-password" }) as HTMLInputElement;
+    const confirmLabel = el("label");
+    confirmLabel.textContent = "Confirm new password";
+    const confirmInput = el("input", { type: "password", autocomplete: "new-password" }) as HTMLInputElement;
+    pwCol.append(currentLabel, currentInput, newLabel, newInput, confirmLabel, confirmInput);
+
+    const change = el("button", { class: "btn btn-filled" });
+    change.textContent = "Change password";
+    change.addEventListener(
+      "click",
+      guard(async () => {
+        if (newInput.value !== confirmInput.value) {
+          toast("The two new passwords do not match", "error");
+          return;
+        }
+        await api.changePassword(currentInput.value, newInput.value);
+        currentInput.value = newInput.value = confirmInput.value = "";
+        toast("Password changed — other sessions were signed out");
+      }),
+    );
+    const logout = el("button", { class: "btn btn-outlined", style: "margin-left:8px;" });
+    logout.textContent = "Log out";
+    logout.addEventListener(
+      "click",
+      guard(async () => {
+        await api.logout();
+        window.location.reload();
+      }),
+    );
+    const pwHint = el("p", { class: "hint", style: "margin-top:12px;" });
+    pwHint.textContent = "Changing your password signs out every other browser.";
+
+    group.append(col, saveProfile, divider, pwCol, change, logout, pwHint);
+
+    panel.append(group, buildDataManagementGroup());
   }
 
   // ---------- Appearance ----------
   {
-    const panel = panels.get("appearance")!;
+    const panel = addSection("appearance", "Appearance");
     const group = el("div", { class: "settings-group" });
 
     const themeRow = el("div", { class: "field-row" });
@@ -182,9 +209,9 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     panel.append(group);
   }
 
-  // ---------- Collection ----------
+  // ---------- Discovery & Collection (merged) ----------
   {
-    const panel = panels.get("collection")!;
+    const panel = addSection("discovery", "Discovery & Collection");
 
     const browsing = el("div", { class: "settings-group" }, "<h4>Browsing</h4>");
     const pageRow = el("div", { class: "field-row" });
@@ -206,9 +233,6 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
       settings["collection.infinite_scroll"] !== false,
       (value) => store.saveSettings({ "collection.infinite_scroll": value }),
     );
-    const scrollHint = el("p", { class: "hint" });
-    scrollHint.textContent =
-      "With this off, pages are only fetched when you press Load more. Takes effect next time a grid is opened.";
 
     const sortRow = el("div", { class: "field-row" });
     const sortLabel = el("span");
@@ -233,7 +257,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
       }),
     );
     sortRow.append(sortLabel, sortSelect);
-    browsing.append(pageRow, sortRow, scrollRow, scrollHint);
+    browsing.append(pageRow, sortRow, scrollRow);
 
     const storage = el("div", { class: "settings-group" }, "<h4>Storage</h4>");
     const convert = toggleRow("Convert PNGs to lossless WebP", settings["storage.convert_png_to_webp"], (value) =>
@@ -258,23 +282,11 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     );
     retentionRow.append(retentionLabel, retentionInput);
 
-    const storageHint = el("p", { class: "hint" });
-    storageHint.textContent =
-      "These apply to newly added images only — changing them never rewrites files already in your collection.";
+    storage.append(convert, preserve, retentionRow);
 
-    storage.append(convert, preserve, retentionRow, storageHint);
-    panel.append(browsing, storage);
-  }
-
-  // ---------- Discovery ----------
-  {
-    const panel = panels.get("discovery")!;
-    const group = el("div", { class: "settings-group" });
-    const enableRow = toggleRow("Enable Discovery (SearXNG)", settings["discovery.enabled"], async (value) => {
-      await store.saveSettings({ "discovery.enabled": value });
-      updateStatus();
-    });
-
+    // Discovery is always on — the only thing left to configure is where it
+    // points and whether that address actually answers.
+    const discoveryGroup = el("div", { class: "settings-group" }, "<h4>Discovery</h4>");
     const col = el("div", { class: "field-col" });
     const urlLabel = el("label");
     urlLabel.textContent = "SearXNG URL";
@@ -310,20 +322,19 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     );
 
     function updateStatus(): void {
-      // A green dot when configured, matching the mockup — the state is visible
-      // at a glance rather than only readable.
       statusValue.innerHTML = store.discoveryEnabled
         ? '<span class="status-dot"></span>Configured — the Feed tab is visible'
-        : "Not configured — the Feed tab stays hidden until this is set up";
+        : "Not configured — the Feed tab stays hidden until a URL is set";
     }
     updateStatus();
 
-    group.append(enableRow, col, statusRow, test);
-    panel.append(group, buildTemplateGroup());
+    discoveryGroup.append(col, statusRow, test);
+
+    panel.append(browsing, storage, discoveryGroup, buildTemplateGroup());
   }
 
   // ---------- Tags (graph lives here) ----------
-  const tagsPanel = panels.get("tags")!;
+  const tagsPanel = addSection("tags", "Tags");
   let tagsBuilt = false;
 
   async function buildTagsPanel(): Promise<void> {
@@ -613,50 +624,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
       class: "btn btn-outlined",
       style: "width:100%; justify-content:center;",
     }, `${icon("scan", true)} Scan for near-duplicates`);
-
-    async function renderNearDuplicates(): Promise<void> {
-      dupeList.replaceChildren(el("span", { class: "hint" }, "Scanning…"));
-      const pairs = await api.nearDuplicates();
-      dupeList.replaceChildren();
-      if (!pairs.length) {
-        dupeList.append(el("span", { class: "hint" }, "No near-duplicates found."));
-        return;
-      }
-      for (const pair of pairs) {
-        const row = el("div", { class: "dupe-pair" });
-        const thumbs = el("div", { class: "dupe-pair-thumbs" });
-        for (const item of [pair.a, pair.b]) {
-          const img = el("img", { src: item.urls.thumb, loading: "lazy", alt: item.title ?? "" });
-          img.addEventListener("click", () => openItemModal(item, { siblings: [pair.a, pair.b] }));
-          thumbs.append(img);
-        }
-        const actions = el("div", { class: "row-actions", style: "margin-top:6px;" });
-        const keepA = el("button", { class: "btn btn-outlined" }, "Keep first, trash second");
-        keepA.addEventListener(
-          "click",
-          guard(async () => {
-            await api.deleteItem(pair.b.id);
-            row.remove();
-            toast("Moved to trash");
-          }),
-        );
-        const keepB = el("button", { class: "btn btn-outlined" }, "Keep second, trash first");
-        keepB.addEventListener(
-          "click",
-          guard(async () => {
-            await api.deleteItem(pair.a.id);
-            row.remove();
-            toast("Moved to trash");
-          }),
-        );
-        const keepBoth = el("button", { class: "btn btn-tonal" }, "Keep both");
-        keepBoth.addEventListener("click", () => row.remove());
-        actions.append(keepA, keepB, keepBoth);
-        row.append(thumbs, actions);
-        dupeList.append(row);
-      }
-    }
-    scanDupesBtn.addEventListener("click", guard(renderNearDuplicates));
+    scanDupesBtn.addEventListener("click", guard(() => renderNearDuplicatesInto(dupeList)));
 
     sidebarPanels.get("cleanup")!.append(
       unusedHint,
@@ -966,7 +934,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
   }
 
   // ---------- Trash ----------
-  const trashPanel = panels.get("trash")!;
+  const trashPanel = addSection("trash", "Trash");
   let trashBuilt = false;
 
   async function buildTrashPanel(): Promise<void> {
@@ -977,10 +945,8 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     trashBuilt = true;
 
     const intro = el("p", { class: "view-desc" });
-    // Read live rather than from the captured snapshot: the retention window may
-    // have been edited in the Collection tab since this view was built.
     const retention = store.settings?.["storage.trash_retention_days"] ?? 30;
-    intro.textContent = `Soft-deleted items. Retained ${retention} days (set under Collection → Storage) before permanent purge.`;
+    intro.textContent = `Soft-deleted items. Retained ${retention} days before permanent purge.`;
 
     const purgeRow = el("div", { style: "display:flex; gap:10px; margin-bottom:16px;" });
     const purgeExpired = el("button", { class: "btn btn-outlined" });
@@ -1055,70 +1021,13 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     trashGrid.gridElement.querySelectorAll(".card").forEach((card) => card.classList.add("trash-card"));
   }
 
-  // ---------- Backup ----------
-  {
-    const panel = panels.get("backup")!;
-    const group = el("div", { class: "settings-group" });
+  void buildTagsPanel();
+  void buildTrashPanel();
 
-    const exportRow = el("div", { class: "field-row" });
-    const exportLabel = el("span");
-    exportLabel.textContent = "Full export (database + image files)";
-    const exportLink = el("a", { class: "btn btn-tonal", href: api.exportUrl, download: "" });
-    exportLink.innerHTML = `${icon("download", true)} Export`;
-    exportRow.append(exportLabel, exportLink);
-
-    const importRow = el("div", { class: "field-row" });
-    const importLabel = el("span");
-    importLabel.textContent = "Import from an export archive";
-    const importInput = el("input", { type: "file", accept: ".zip" }) as HTMLInputElement;
-    importInput.hidden = true;
-    const importBtn = el("button", { class: "btn btn-outlined" }, `${icon("upload", true)} Import`);
-    importBtn.addEventListener("click", () => importInput.click());
-    importInput.addEventListener(
-      "change",
-      guard(async () => {
-        const file = importInput.files?.[0];
-        if (!file) return;
-        toast("Importing…");
-        const result = await api.importArchive(file);
-        importInput.value = "";
-        toast(
-          `Imported ${result.items_imported} item(s), ${result.boards_imported} board(s); ${result.skipped} already present`,
-        );
-      }),
-    );
-    importRow.append(importLabel, importBtn);
-
-    const hint = el("p", { class: "hint" });
-    hint.textContent =
-      "Import is keyed on image content, so re-importing an archive you already have is a no-op rather than a duplication.";
-
-    const encryptionHint = el("p", { class: "hint" });
-    encryptionHint.textContent =
-      "An export is a full, unencrypted copy of your collection. Fine to keep on this machine — if you move a copy off this box (another drive, cloud storage, anywhere else), encrypt it there. Nothing here does that automatically.";
-
-    group.append(exportRow, importRow, importInput, hint, encryptionHint);
-    panel.append(group);
-
-    // A visible version string is the one-line fix for "beta software is
-    // software where nobody — including its author — can say confidently
-    // what's actually running" (advance.md §8). Read from /api/health rather
-    // than baked in at build time, so it can never drift from what the
-    // running backend actually reports.
-    const versionRow = el("p", { class: "hint", style: "margin-top:18px;" });
-    versionRow.textContent = "Checking version…";
-    panel.append(versionRow);
-    void api
-      .health()
-      .then((status) => {
-        versionRow.textContent = `Artboard v${status.version}`;
-      })
-      .catch(() => {
-        versionRow.textContent = "Version unavailable — could not reach the backend.";
-      });
+  const anchor = SECTION_ANCHORS[activeTab];
+  if (anchor && anchor !== "profile") {
+    document.getElementById(`settings-${anchor}`)?.scrollIntoView({ block: "start" });
   }
-
-  activate(activeTab);
 
   return () => {
     graph?.destroy();
@@ -1132,15 +1041,15 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
  * The Feed's search box should take the subject and nothing else — "Shōyō
  * Hinata", not "Shōyō Hinata artwork high resolution -pinterest". The template
  * holds that boilerplate once, `{query}` marks where the subject goes, and the
- * backend expands it. Recommended templates are shown as plain selectable text
- * so they can be copied, edited and saved rather than only picked from a list.
+ * backend expands it.
  */
 function buildTemplateGroup(): HTMLElement {
   const group = el("div", { class: "settings-group" }, "<h4>Search template</h4>");
 
   const intro = el("p", { class: "hint" });
   intro.textContent =
-    "Applied to everything you search in the Feed. Use {query} where your search terms should go.";
+    "Applied to everything you search in the Feed. Use {query} where your search terms should go — " +
+    'for example "{query} artwork", "{query} high resolution" or "{query} -pinterest".';
 
   const activeInput = el("input", {
     type: "text",
@@ -1179,11 +1088,7 @@ function buildTemplateGroup(): HTMLElement {
   addBtn.textContent = "Save";
   addRow.append(nameInput, templateInput, addBtn);
 
-  const recommendedLabel = el("p", { class: "hint", style: "margin-top:18px; font-weight:600;" });
-  recommendedLabel.textContent = "Recommended — copy, edit, or use as-is";
-  const recommendedList = el("div", { class: "template-list" });
-
-  group.append(intro, activeInput, preview, savedLabel, savedList, addRow, recommendedLabel, recommendedList);
+  group.append(intro, activeInput, preview, savedLabel, savedList, addRow);
 
   const renderTemplates = guard(async () => {
     const data = await api.discoveryTemplates();
@@ -1233,48 +1138,6 @@ function buildTemplateGroup(): HTMLElement {
       savedList.append(row);
     }
 
-    recommendedList.replaceChildren();
-    for (const entry of data.recommended) {
-      const row = el("div", { class: "template-row" });
-      const text = el("div");
-      const name = el("strong");
-      name.textContent = entry.name;
-      const code = el("code");
-      // Selectable text, so it can be copied and edited by hand — the point of
-      // showing these rather than hiding them behind a dropdown.
-      code.textContent = entry.template;
-      const note = el("span", { class: "hint" });
-      note.textContent = entry.note;
-      text.append(name, document.createElement("br"), code, document.createElement("br"), note);
-
-      const use = el("button", { class: "btn btn-outlined" });
-      use.textContent = "Use";
-      use.addEventListener(
-        "click",
-        guard(async () => {
-          await store.saveSettings({ "discovery.query_template": entry.template });
-          activeInput.value = entry.template;
-          renderPreview();
-          toast(`Using "${entry.name}"`);
-        }),
-      );
-
-      const save = el("button", { class: "btn btn-tonal" });
-      save.textContent = "Save";
-      save.addEventListener(
-        "click",
-        guard(async () => {
-          const saved = [...data.saved.filter((t) => t.name !== entry.name), { name: entry.name, template: entry.template }];
-          await store.saveSettings({ "discovery.templates": saved });
-          await renderTemplates();
-          toast("Added to your templates");
-        }),
-      );
-
-      row.append(text, use, save);
-      recommendedList.append(row);
-    }
-
     addBtn.onclick = guard(async () => {
       const name = nameInput.value.trim();
       const template = templateInput.value.trim();
@@ -1296,76 +1159,116 @@ function buildTemplateGroup(): HTMLElement {
 }
 
 /**
- * Account controls live inside the Profile tab rather than as an eighth tab.
- * The architecture document fixes seven tabs, and "who you are" is the same
- * subject as the display name that already lives here.
+ * Scans for near-duplicate pairs and renders keep/keep/keep-both actions into
+ * `container`. Shared by the Tags → Cleanup panel and the Data Management
+ * "Check & merge duplicates" action below, so the two entry points don't
+ * carry two copies of the same scan-and-resolve logic.
  */
-function buildAccountGroup(): HTMLElement {
-  const group = el("div", { class: "settings-group" }, "<h4>Account</h4>");
+async function renderNearDuplicatesInto(container: HTMLElement): Promise<void> {
+  container.replaceChildren(el("span", { class: "hint" }, "Scanning…"));
+  const pairs = await api.nearDuplicates();
+  container.replaceChildren();
+  if (!pairs.length) {
+    container.append(el("span", { class: "hint" }, "No near-duplicates found."));
+    return;
+  }
+  for (const pair of pairs) {
+    const row = el("div", { class: "dupe-pair" });
+    const thumbs = el("div", { class: "dupe-pair-thumbs" });
+    for (const item of [pair.a, pair.b]) {
+      const img = el("img", { src: item.urls.thumb, loading: "lazy", alt: item.title ?? "" });
+      img.addEventListener("click", () => openItemModal(item, { siblings: [pair.a, pair.b] }));
+      thumbs.append(img);
+    }
+    const actions = el("div", { class: "row-actions", style: "margin-top:6px;" });
+    const keepA = el("button", { class: "btn btn-outlined" }, "Keep first, trash second");
+    keepA.addEventListener(
+      "click",
+      guard(async () => {
+        await api.deleteItem(pair.b.id);
+        row.remove();
+        toast("Moved to trash");
+      }),
+    );
+    const keepB = el("button", { class: "btn btn-outlined" }, "Keep second, trash first");
+    keepB.addEventListener(
+      "click",
+      guard(async () => {
+        await api.deleteItem(pair.a.id);
+        row.remove();
+        toast("Moved to trash");
+      }),
+    );
+    const keepBoth = el("button", { class: "btn btn-tonal" }, "Keep both");
+    keepBoth.addEventListener("click", () => row.remove());
+    actions.append(keepA, keepB, keepBoth);
+    row.append(thumbs, actions);
+    container.append(row);
+  }
+}
 
-  const col = el("div", { class: "field-col" });
-  const currentLabel = el("label");
-  currentLabel.textContent = "Current password";
-  const currentInput = el("input", { type: "password", autocomplete: "current-password" }) as HTMLInputElement;
-  const newLabel = el("label");
-  newLabel.textContent = "New password (10+ characters)";
-  const newInput = el("input", { type: "password", autocomplete: "new-password" }) as HTMLInputElement;
-  const confirmLabel = el("label");
-  confirmLabel.textContent = "Confirm new password";
-  const confirmInput = el("input", { type: "password", autocomplete: "new-password" }) as HTMLInputElement;
-  col.append(currentLabel, currentInput, newLabel, newInput, confirmLabel, confirmInput);
-
-  const change = el("button", { class: "btn btn-filled" });
-  change.textContent = "Change password";
-  change.addEventListener(
-    "click",
-    guard(async () => {
-      if (newInput.value !== confirmInput.value) {
-        toast("The two new passwords do not match", "error");
-        return;
-      }
-      await api.changePassword(currentInput.value, newInput.value);
-      currentInput.value = newInput.value = confirmInput.value = "";
-      toast("Password changed — other sessions were signed out");
-    }),
-  );
-
-  const logout = el("button", { class: "btn btn-outlined", style: "margin-left:8px;" });
-  logout.textContent = "Log out";
-  logout.addEventListener(
-    "click",
-    guard(async () => {
-      await api.logout();
-      window.location.reload();
-    }),
-  );
-
-  const hint = el("p", { class: "hint", style: "margin-top:12px;" });
-  hint.textContent =
-    "Changing your password signs out every other browser. If you lose it, run `python -m app.cli set-password` on the server.";
-
-  group.append(col, change, logout, hint);
-  return group;
+function openDuplicatesModal(): void {
+  const modal = openModal({ maxWidth: "560px" });
+  const heading = el("h3");
+  heading.textContent = "Check & merge duplicates";
+  const list = el("div", { class: "sidebar-list", style: "margin-top:12px;" });
+  modal.body.append(heading, list);
+  void renderNearDuplicatesInto(list);
 }
 
 /**
- * A clean-slate button for starting a fresh round of tagging and curation —
- * untags every item and clears every cover image, but keeps the images, the
- * tag/category definitions themselves, and the boards. Lives beside Account
- * rather than as its own tab: it's a one-off reset action, not an ongoing
- * setting.
+ * Import/export, a scan for near-duplicates, and the two destructive resets —
+ * one that clears what's applied (tags, covers) and one that clears what
+ * exists (the whole collection). Grouped together because all five are
+ * maintenance actions reached rarely, not everyday settings.
  */
-function buildResetGroup(): HTMLElement {
-  const group = el("div", { class: "settings-group" }, "<h4>Reset</h4>");
+function buildDataManagementGroup(): HTMLElement {
+  const group = el("div", { class: "settings-group" }, "<h4>Data Management</h4>");
 
-  const hint = el("p", { class: "hint" });
-  hint.textContent =
-    "Untags every item and clears the avatar, banner and every board's cover. " +
-    "Your images, tags/categories themselves, and boards are not touched — this clears what's applied, not what exists.";
+  const exportRow = el("div", { class: "field-row" });
+  const exportLabel = el("span");
+  exportLabel.textContent = "Full export (database + image files)";
+  const exportLink = el("a", { class: "btn btn-tonal", href: api.exportUrl, download: "" });
+  exportLink.innerHTML = `${icon("download", true)} Export`;
+  exportRow.append(exportLabel, exportLink);
 
-  const reset = el("button", { class: "btn btn-error-tonal" });
-  reset.textContent = "Reset tags & covers";
-  reset.addEventListener(
+  const importRow = el("div", { class: "field-row" });
+  const importLabel = el("span");
+  importLabel.textContent = "Import from an export archive";
+  const importInput = el("input", { type: "file", accept: ".zip" }) as HTMLInputElement;
+  importInput.hidden = true;
+  const importBtn = el("button", { class: "btn btn-outlined" }, `${icon("upload", true)} Import`);
+  importBtn.addEventListener("click", () => importInput.click());
+  importInput.addEventListener(
+    "change",
+    guard(async () => {
+      const file = importInput.files?.[0];
+      if (!file) return;
+      toast("Importing…");
+      const result = await api.importArchive(file);
+      importInput.value = "";
+      toast(
+        `Imported ${result.items_imported} item(s), ${result.boards_imported} board(s); ${result.skipped} already present`,
+      );
+    }),
+  );
+  importRow.append(importLabel, importBtn);
+
+  const importHint = el("p", { class: "hint" });
+  importHint.textContent = "Import is keyed on image content — re-importing an archive you already have is a no-op.";
+
+  const dupeRow = el("div", { class: "field-row" });
+  const dupeLabel = el("span");
+  dupeLabel.textContent = "Scan the collection for near-duplicate images";
+  const dupeBtn = el("button", { class: "btn btn-outlined" }, `${icon("scan", true)} Check & merge duplicates`);
+  dupeBtn.addEventListener("click", openDuplicatesModal);
+  dupeRow.append(dupeLabel, dupeBtn);
+
+  const resetRow = el("div", { class: "field-row" });
+  const resetLabel = el("span");
+  resetLabel.textContent = "Untag every item and clear the avatar, banner and every board's cover";
+  const resetBtn = el("button", { class: "btn btn-error-tonal" }, "Reset tags & covers");
+  resetBtn.addEventListener(
     "click",
     guard(async () => {
       const confirmed = await confirmDialog(
@@ -1379,8 +1282,29 @@ function buildResetGroup(): HTMLElement {
       toast("Tags and covers reset");
     }),
   );
+  resetRow.append(resetLabel, resetBtn);
 
-  group.append(hint, reset);
+  const deleteAllRow = el("div", { class: "field-row" });
+  const deleteAllLabel = el("span");
+  deleteAllLabel.textContent = "Delete every image, board, tag and category — the entire collection";
+  const deleteAllBtn = el("button", { class: "btn btn-error-tonal" }, "Delete all");
+  deleteAllBtn.addEventListener(
+    "click",
+    guard(async () => {
+      const confirmed = await confirmDialog(
+        "Delete the entire collection? Every image file, board, tag and category is permanently removed. " +
+          "This cannot be undone.",
+        "Delete all",
+      );
+      if (!confirmed) return;
+      await api.deleteAllData();
+      await Promise.all([store.loadSettings(), store.loadTags(), store.loadGraph().catch(() => undefined)]);
+      toast("Collection deleted");
+    }),
+  );
+  deleteAllRow.append(deleteAllLabel, deleteAllBtn);
+
+  group.append(exportRow, importRow, importInput, importHint, dupeRow, resetRow, deleteAllRow);
   return group;
 }
 

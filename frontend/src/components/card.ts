@@ -173,6 +173,16 @@ export function makeCard(item: Item, options: CardOptions = {}): HTMLElement {
       document.body.append(menu);
       menu.classList.add("open");
       wrap.classList.add("open");
+      // Measure off-screen first: right after appending, the menu is still a
+      // plain `position: static` block in `document.body`'s flow, so it
+      // stretches to the body's full width and `getBoundingClientRect()`
+      // would report that width — not the ~190px the menu actually renders
+      // at — which pushed every menu's left edge to the far left of the page.
+      // Setting `position: fixed` before measuring gives it its real,
+      // shrink-to-fit size.
+      menu.style.position = "fixed";
+      menu.style.top = "-9999px";
+      menu.style.left = "-9999px";
       const box = anchor ?? button.getBoundingClientRect();
       const menuBox = menu.getBoundingClientRect();
       let top = box.bottom + 6;

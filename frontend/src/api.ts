@@ -325,6 +325,7 @@ export const api = {
   putSettings: (values: Partial<Record<keyof Settings, unknown>>) =>
     request<Settings>("/api/settings", json("PUT", { values })),
   resetTagsAndCovers: () => request<Settings>("/api/settings/reset", { method: "POST" }),
+  deleteAllData: () => request<Settings>("/api/settings/delete-all", { method: "POST" }),
 
   // --- discovery ---
   discover: (q: string) => request<DiscoverResponse>(`/api/discover${query({ q })}`),

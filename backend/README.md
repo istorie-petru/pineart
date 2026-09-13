@@ -257,13 +257,21 @@ This creates the `artboard` system user, lays out `/srv/artboard/`, builds
 and starts the first release (both services), and enables the daily
 trash-purge timer. Point whatever's in front of this box at
 `127.0.0.1:4173` — see `deploy/Caddyfile.example` for Caddy or
-`../deploy/README.md` for the Cloudflare Tunnel path — and set
-`ARTBOARD_SECURE_COOKIES=true` in `/srv/artboard/shared/.env` — already the
-default there — once TLS is live. If your public hostname is set (either
-path), also uncomment and set `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` in
-that same `.env` file to that hostname and `systemctl restart
-artboard-frontend` — `vite preview` rejects any `Host` header it doesn't
-recognize by default, and answers everything else with a 403.
+`../deploy/README.md` for the Cloudflare Tunnel path (which does the next
+step for you automatically) — and set `ARTBOARD_SECURE_COOKIES=true` in
+`/srv/artboard/shared/.env` — already the default there — once TLS is live.
+
+Once you have a public hostname pointed at this box, run:
+
+```bash
+sudo artboard-ctl set-hostname your.hostname.here
+```
+
+`vite preview` rejects any `Host` header it doesn't recognize by default
+(answering everything else with a 403); this sets
+`__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` in `/srv/artboard/shared/.env` and
+restarts `artboard-frontend` for you. Comma-separate multiple hostnames if
+you ever need more than one.
 
 #### Day to day, once installed
 
@@ -359,10 +367,12 @@ sent on cross-site POST/PUT/DELETE, so a hostile page cannot ride an existing
 session, while ordinary top-level navigation still works. A token scheme would
 add a moving part for no additional protection at this shape of app.
 
-Lost the password? `python -m app.cli set-password` on the server. It asks for no
-current password on purpose: whoever can run it can already read the database
-file, so a check would be theatre. It revokes every session, so an
-already-open browser is not a way around it.
+Lost the password? `python -m app.cli set-password` on the server (or, on the
+`artboard-ctl`-managed deploy, `sudo artboard-ctl set-password` — same thing,
+without needing to know the venv path or how the shared `.env` gets sourced).
+It asks for no current password on purpose: whoever can run it can already
+read the database file, so a check would be theatre. It revokes every
+session, so an already-open browser is not a way around it.
 
 Set `ARTBOARD_SECURE_COOKIES=true` in production. It is off by default because a
 `Secure` cookie is silently dropped over plain HTTP, which presents as a login

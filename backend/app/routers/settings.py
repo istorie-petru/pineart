@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import Board, Item, ItemTag
+from ..models import Board, Item, ItemTag, Link, Tag, TagCategory
 from ..schemas import SettingsIn
-from ..services import search, settings_store
+from ..services import images, search, settings_store
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -69,5 +69,36 @@ def reset_tags_and_covers(db: Session = Depends(get_db)) -> dict[str, Any]:
     for item in affected_items:
         search.reindex_item(db, item)
     db.commit()
+
+    return _decorate(db, settings_store.get_all(db))
+
+
+@router.post("/delete-all")
+def delete_all(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Wipes the entire collection: every item and its files on disk, every
+    board, every tag/category/graph-rule, and every link.
+
+    Distinct from `/reset` above — that one only clears what's *applied*
+    (tags, covers) and leaves the collection itself intact. This clears what
+    *exists*. Login, session and the rest of settings (theme, page size,
+    Discovery config, …) are untouched, so the app comes back as an empty
+    collection, not a freshly-installed one.
+    """
+    storage_paths = set(db.scalars(select(Item.storage_path)).all())
+
+    # Boards and tags cascade their own join tables (board_items,
+    # board_query_tags, board_subboard_tags, item_tags) and — for tag
+    # categories — tag_graph_rules, all declared ON DELETE CASCADE.
+    db.execute(delete(Board))
+    db.execute(delete(Tag))
+    db.execute(delete(TagCategory))
+    db.execute(delete(Link))
+    db.execute(delete(Item))
+    db.execute(text("DELETE FROM items_fts"))
+    settings_store.set_many(db, {"profile.avatar_item_id": None, "profile.banner_item_id": None})
+    db.commit()
+
+    for path in storage_paths:
+        images.delete_files(path)
 
     return _decorate(db, settings_store.get_all(db))

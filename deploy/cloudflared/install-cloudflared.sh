@@ -171,9 +171,19 @@ systemctl --no-pager status "${APP_NAME}-tunnel.service" || true
 
 log "Done. https://${ARTBOARD_PUBLIC_HOSTNAME} should now reach"
 log "127.0.0.1:${LOCAL_PORT} on this host through Cloudflare's edge."
-log ""
-log "Reminder: vite preview (artboard-frontend.service) rejects Host headers"
-log "it doesn't recognize by default. Set __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS"
-log "in /srv/artboard/shared/.env to '${ARTBOARD_PUBLIC_HOSTNAME}' and"
-log "'systemctl restart artboard-frontend' if you haven't already, or every"
-log "request through the tunnel will get a 403."
+
+# vite preview (artboard-frontend.service) rejects any Host header it
+# doesn't recognize by default -- without this, every request through the
+# tunnel gets a 403 no matter how correctly the tunnel itself is configured.
+# artboard-ctl set-hostname is the one-line fix (sets
+# __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS in shared/.env and restarts the
+# service) -- do it here automatically rather than leaving it as a step
+# someone has to remember and know vite.config.ts even exists for.
+if command -v artboard-ctl >/dev/null 2>&1; then
+  log "Allowing '${ARTBOARD_PUBLIC_HOSTNAME}' through vite preview's Host check..."
+  artboard-ctl set-hostname "$ARTBOARD_PUBLIC_HOSTNAME"
+else
+  warn "artboard-ctl not found on PATH -- has 'artboard-ctl install' been run yet?"
+  warn "Without it, vite preview will 403 every request through this tunnel."
+  warn "Once it's installed, run: sudo artboard-ctl set-hostname ${ARTBOARD_PUBLIC_HOSTNAME}"
+fi

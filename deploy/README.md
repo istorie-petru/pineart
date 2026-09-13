@@ -101,12 +101,9 @@ nano /tmp/bootstrap/deploy/deploy.env   # set ARTBOARD_PUBLIC_HOSTNAME at least
 # 4. Install cloudflared, authenticate, create the tunnel, route DNS,
 #    write config, install the systemd unit. Interactive once (tunnel
 #    login opens a URL you approve in a browser); idempotent after that.
+#    Also runs 'artboard-ctl set-hostname' for you at the end (see
+#    "Gotcha" below) -- nothing left to do by hand after this step.
 sudo bash /tmp/bootstrap/deploy/cloudflared/install-cloudflared.sh
-
-# 5. Tell vite preview to accept the public hostname (see "Gotcha" below),
-#    then restart it.
-sudo nano /srv/artboard/shared/.env   # uncomment/set __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS
-sudo systemctl restart artboard-frontend
 ```
 
 Day to day after this, deploys are just:
@@ -123,11 +120,20 @@ both run the identical command.
 `artboard-frontend.service` runs `vite preview`, which rejects any `Host`
 header it doesn't recognize by default (DNS-rebinding protection).
 `localhost` and bare IPs are allowed automatically; your real public
-hostname is not. `backend/deploy/artboard-ctl` already writes a commented-out
-line for this in `/srv/artboard/shared/.env`
-(`__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS`) -- uncomment it, set it to your
-`ARTBOARD_PUBLIC_HOSTNAME`, and restart `artboard-frontend`, or every
-request through the tunnel gets a 403.
+hostname is not. `install-cloudflared.sh` handles this for you automatically
+(the last thing it does is run `artboard-ctl set-hostname
+$ARTBOARD_PUBLIC_HOSTNAME`), so there's nothing to do by hand on this path.
+
+If you ever change the public hostname later, or you're on the Caddy path
+instead (which doesn't run this script), the fix is the same one-liner:
+
+```bash
+sudo artboard-ctl set-hostname your.hostname.here
+```
+
+That sets `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` in
+`/srv/artboard/shared/.env` and restarts `artboard-frontend` for you. Skip
+it and every request through the tunnel (or proxy) gets a 403.
 
 ## Architecture
 

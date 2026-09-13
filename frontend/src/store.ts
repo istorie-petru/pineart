@@ -95,8 +95,10 @@ class Store {
     }
   }
 
+  /** Discovery has no on/off switch — it's available as soon as a SearXNG
+   * URL is configured. */
   get discoveryEnabled(): boolean {
-    return Boolean(this.settings?.["discovery.enabled"] && this.settings?.["discovery.searxng_url"]);
+    return Boolean(this.settings?.["discovery.searxng_url"]);
   }
 
   // ---------------------------------------------------------------------
