@@ -340,5 +340,28 @@ def delete_files(storage_path: str) -> None:
             pass
 
 
+def phash_to_int(value: str) -> int:
+    """Parses a stored pHash hex string into its raw bit pattern.
+
+    Raises `ValueError` on anything that isn't valid hex — a malformed or
+    legacy phash value shouldn't be able to crash a bulk comparison; callers
+    scanning many items should parse each one through this once, catch
+    `ValueError` per item, and skip rather than let one bad row fail the
+    whole scan (see `find_near_duplicates` and the near-duplicates endpoint).
+    """
+    return int(value, 16)
+
+
+def phash_hamming(a: int, b: int) -> int:
+    """Bit distance between two already-parsed pHash integers.
+
+    Plain integer XOR + popcount, not `imagehash.ImageHash.__sub__` (which
+    round-trips through a numpy boolean array on every call) — comparing
+    every pair in a collection is O(n^2) calls, so the per-call cost matters
+    far more here than it does for a one-off comparison.
+    """
+    return (a ^ b).bit_count()
+
+
 def phash_distance(a: str, b: str) -> int:
-    return imagehash.hex_to_hash(a) - imagehash.hex_to_hash(b)
+    return phash_hamming(phash_to_int(a), phash_to_int(b))

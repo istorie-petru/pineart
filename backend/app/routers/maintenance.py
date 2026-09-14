@@ -9,6 +9,8 @@ the ones worth scheduling) triggers.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends
 from PIL import UnidentifiedImageError
 from sqlalchemy import select
@@ -20,6 +22,7 @@ from ..models import Item
 from ..schemas import (
     IntegrityIssue,
     IntegrityReport,
+    ItemOut,
     NearDuplicatePair,
     ReconciliationReport,
 )
@@ -27,6 +30,7 @@ from ..serializers import item_out
 from ..services import images, ingest
 
 router = APIRouter(prefix="/api/maintenance", tags=["maintenance"])
+logger = logging.getLogger(__name__)
 
 # Opening and decoding every stored original is real I/O and CPU — fine for a
 # manual "check now" click, but not something to run unbounded from a repeat
@@ -117,8 +121,21 @@ def reconcile(db: Session = Depends(get_db)) -> ReconciliationReport:
     )
 
 
+# Same reasoning as MAX_INTEGRITY_SCAN above: the comparison below is O(n^2),
+# which is genuinely fine at the "tens of thousands of items" scale this
+# project targets (`find_near_duplicates`'s docstring) for the *comparison*
+# itself — a few million cheap integer XORs is milliseconds of work. What
+# isn't fine at that scale is serializing a full `item_out()` (tags, URLs,
+# board membership, ...) for every one of those items up front regardless of
+# whether it ever matches anything — this endpoint used to do exactly that
+# per *pair*, redundantly, which is what actually made a large collection
+# feel like it hung. This cap bounds the absolute worst case the same way
+# `/integrity` does; a collection past it is reviewed in more than one pass.
+MAX_NEAR_DUP_SCAN = 20000
+
+
 @router.get("/near-duplicates", response_model=list[NearDuplicatePair])
-def near_duplicates(db: Session = Depends(get_db)) -> list[NearDuplicatePair]:
+def near_duplicates(db: Session = Depends(get_db), limit: int = MAX_NEAR_DUP_SCAN) -> list[NearDuplicatePair]:
     """All pairs of non-deleted items whose perceptual hashes are close.
 
     Ingest-time pHash dedup (`ingest.find_near_duplicates`) only ever compares a
@@ -129,23 +146,54 @@ def near_duplicates(db: Session = Depends(get_db)) -> list[NearDuplicatePair]:
     this endpoint is only ever called from a maintenance page, never on a hot
     path.
     """
-    items = [
-        i
-        for i in db.scalars(
-            select(Item).where(Item.is_deleted.is_(False), Item.phash.is_not(None))
+    rows = list(
+        db.scalars(
+            select(Item)
+            .where(Item.is_deleted.is_(False), Item.phash.is_not(None))
+            .order_by(Item.id)
         ).all()
-        # Versions of the same artwork are *supposed* to look alike — that's not
-        # a duplicate to review, it's the versioning feature working as intended.
-        if i.version_of_id is None
-    ]
+    )[:limit]
+
+    # Parse every phash exactly once up front (the nested loop below would
+    # otherwise re-parse the same hex string for every pair it's part of —
+    # O(n) redundant parses becoming O(n^2)) and, critically, skip rows with
+    # a malformed value instead of letting one bad row blow up the whole
+    # request. `find_near_duplicates` (the ingest-time sibling of this scan)
+    # already guards the same way; this endpoint just hadn't matched it.
+    items: list[Item] = []
+    hashes: dict[int, int] = {}
+    for item in rows:
+        if item.version_of_id is not None:
+            # Versions of the same artwork are *supposed* to look alike —
+            # that's not a duplicate to review, it's versioning working.
+            continue
+        try:
+            hashes[item.id] = images.phash_to_int(item.phash)
+        except ValueError:
+            logger.warning("Skipping item %s: unparseable phash %r", item.id, item.phash)
+            continue
+        items.append(item)
+
+    # Serialized lazily and cached, not eagerly for every item — most items
+    # in a collection this size match nothing, and `item_out` (tags, URLs,
+    # board membership) is the expensive part per item, not the hash compare.
+    serialized: dict[int, ItemOut] = {}
+
+    def serialize(item: Item) -> ItemOut:
+        cached = serialized.get(item.id)
+        if cached is None:
+            cached = item_out(item)
+            serialized[item.id] = cached
+        return cached
 
     pairs: list[NearDuplicatePair] = []
     for idx, a in enumerate(items):
+        a_hash = hashes[a.id]
         for b in items[idx + 1 :]:
-            distance = images.phash_distance(a.phash, b.phash)
+            distance = images.phash_hamming(a_hash, hashes[b.id])
             if distance <= ingest.PHASH_NEAR_DUPLICATE_DISTANCE:
                 pairs.append(
-                    NearDuplicatePair(a=item_out(a), b=item_out(b), distance=distance)
+                    NearDuplicatePair(a=serialize(a), b=serialize(b), distance=distance)
                 )
 
     pairs.sort(key=lambda p: p.distance)

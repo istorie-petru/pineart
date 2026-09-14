@@ -8,6 +8,8 @@ import errno
 
 from fastapi.testclient import TestClient
 
+from app.db import SessionLocal
+from app.models import Item
 from conftest import make_image, upload
 
 
@@ -38,6 +40,32 @@ def test_near_duplicates_finds_resized_copy(client: TestClient) -> None:
     ids = {p["a"]["id"] for p in pairs} | {p["b"]["id"] for p in pairs}
     assert a["item"]["id"] in ids
     assert b["item"]["id"] in ids
+
+
+def test_near_duplicates_skips_unparseable_phash_instead_of_500ing(client: TestClient) -> None:
+    """A malformed `phash` row (bad hex, from a bug or manual DB edit) used to
+    blow up the whole scan with an unhandled `ValueError` mid comparison-loop
+    — one bad row meant a 500 for the entire "check & merge duplicates"
+    review, no matter how many legitimate matches there were to see. The
+    fix mirrors what `find_near_duplicates` (the ingest-time sibling of this
+    scan) already did: parse each phash once up front and skip rows that
+    don't parse, rather than let them fail mid-loop."""
+    a = upload(client, image_kwargs={"seed": 1, "size": (600, 400)})
+    b = upload(client, image_kwargs={"seed": 1, "size": (300, 200)})
+
+    with SessionLocal() as db:
+        broken = db.get(Item, a["item"]["id"])
+        broken.phash = "not-valid-hex"
+        db.commit()
+
+    response = client.get("/api/maintenance/near-duplicates")
+    assert response.status_code == 200
+    pairs = response.json()
+    ids = {p["a"]["id"] for p in pairs} | {p["b"]["id"] for p in pairs}
+    # The broken row is skipped entirely rather than crashing the scan, so
+    # it can't show up in a pair — but the other, valid item is unaffected.
+    assert a["item"]["id"] not in ids
+    assert b["item"]["id"] not in ids or not pairs
 
 
 def test_tag_merge_reassigns_and_dedupes(client: TestClient) -> None:
