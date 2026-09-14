@@ -11,7 +11,7 @@
 
 import { api } from "../api";
 import type { TagSuggestion } from "../types";
-import { el, tagColor } from "../ui";
+import { el, readableTextColor, tagColor } from "../ui";
 
 export interface TagInputOptions {
   placeholder?: string;
@@ -241,8 +241,10 @@ export class TagInput {
       // show (nothing to look up until it's actually created), so it keeps
       // the plain accent-colored chip look instead.
       if (entry.tag) {
-        chip.style.background = tagColor(entry.tag);
+        const color = tagColor(entry.tag);
+        chip.style.background = color;
         chip.style.borderColor = "transparent";
+        chip.style.color = readableTextColor(color);
       }
       chip.append(entry.name);
       const remove = el("button", { type: "button", "aria-label": `Remove ${entry.name}` }, "×");

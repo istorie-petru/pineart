@@ -396,11 +396,6 @@ function hexToRgb(hex: string): [number, number, number] {
   return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
 }
 
-function rgbToHex(r: number, g: number, b: number): string {
-  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
-  return `#${[r, g, b].map((v) => clamp(v).toString(16).padStart(2, "0")).join("")}`;
-}
-
 /** sRGB (0-255) channel to linear light (0-1) — the de-gamma step WCAG's
  * relative luminance formula is defined over. */
 function srgbToLinear(channel: number): number {
@@ -408,37 +403,27 @@ function srgbToLinear(channel: number): number {
   return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 }
 
-/** Linear light (0-1) back to an sRGB (0-255) channel, clamped. */
-function linearToSrgb(linear: number): number {
-  const c = Math.max(0, Math.min(1, linear));
-  const v = c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
-  return v * 255;
-}
-
 /**
- * Darkens (or, for a near-black input, lightens) a colour just enough that
- * white text drawn on top of it — which every tag chip and graph node label
- * does, in both themes — stays legible, while leaving its hue alone.
+ * Picks legible text colour — white or near-black — for text drawn directly
+ * on top of an arbitrary background colour, e.g. a tag chip's label sitting
+ * on that tag's own colour.
  *
- * The first version of this clamped HSL "lightness" into a band per theme,
- * which was the wrong axis: HSL lightness does not track perceived
- * brightness across hues, so a stored yellow at, say, 66% lightness clamped
- * down to 62% and was *still* a bright yellow — white text on it stayed
- * unreadable, in either theme, because 62%-lightness yellow and 62%-lightness
- * blue are nowhere near equally bright to the eye. WCAG relative luminance is
- * the formula that actually accounts for that (it weights green highest, blue
- * lowest, matching human perception), so this works in luminance instead: if
- * a colour's luminance is above what keeps white text readable, every
- * channel is scaled down together *in linear light* — which dims without
- * shifting hue — until it drops back into a safe band. A colour already dark
- * enough to blend into a near-black page gets nudged the other way, off a
- * true-black floor, so it still reads as a distinct swatch there too. Because
- * the chip text is white regardless of theme, this same band is correct for
- * both — no need to key it off `data-theme` at all.
+ * This used to instead *darken the background* until white text held up
+ * against it (`contrastSafeColor`, since removed) — which meant the colour
+ * actually shown was never quite the one picked: a bright, light colour
+ * chosen in the tag editor got quietly muted everywhere it was displayed, so
+ * "the tag is blue" and "the swatch just picked" didn't always match. The
+ * background should always be the exact colour someone chose; it's the
+ * *text* that should adapt to it, not the other way around. WCAG relative
+ * luminance (it weights green highest, blue lowest, matching perceived
+ * brightness — plain HSL lightness does not, so a bright yellow and a bright
+ * blue at the same lightness are not equally readable under white text) is
+ * used to compute the actual contrast ratio for white vs. near-black text
+ * against the given colour, and whichever wins is returned.
  */
-export function contrastSafeColor(hex: string): string {
+export function readableTextColor(hex: string): string {
   let clean = hex.trim();
-  if (!/^#?[0-9a-f]{3}([0-9a-f]{3})?$/i.test(clean)) return hex;
+  if (!/^#?[0-9a-f]{3}([0-9a-f]{3})?$/i.test(clean)) return "#fff";
   if (!clean.startsWith("#")) clean = `#${clean}`;
   const [r, g, b] = hexToRgb(clean);
 
@@ -447,26 +432,20 @@ export function contrastSafeColor(hex: string): string {
   const linB = srgbToLinear(b);
   const luminance = 0.2126 * linR + 0.7152 * linG + 0.0722 * linB;
 
-  // 0.16 keeps white text at roughly 5:1 contrast (comfortably past the 4.5:1
-  // AA threshold for normal-size text, which is what chip labels are). 0.035
-  // is just enough above the dark theme's own near-black background (~0.01)
-  // that a very dark stored colour still reads as "a colour" against it.
-  const MAX_LUMINANCE = 0.16;
-  const MIN_LUMINANCE = 0.035;
-
-  let scale = 1;
-  if (luminance > MAX_LUMINANCE) scale = MAX_LUMINANCE / Math.max(luminance, 1e-6);
-  else if (luminance > 0 && luminance < MIN_LUMINANCE) scale = MIN_LUMINANCE / luminance;
-  if (scale === 1) return rgbToHex(r, g, b);
-
-  return rgbToHex(linearToSrgb(linR * scale), linearToSrgb(linG * scale), linearToSrgb(linB * scale));
+  // WCAG contrast ratio: (lighter + 0.05) / (darker + 0.05). White is
+  // luminance 1, black is luminance 0, so these simplify to the below.
+  const contrastWithWhite = 1.05 / (luminance + 0.05);
+  const contrastWithBlack = (luminance + 0.05) / 0.05;
+  return contrastWithWhite >= contrastWithBlack ? "#fff" : "#1a1a1a";
 }
 
 /**
  * A tag's displayed colour: its own colour if set, else its supercategory's
- * colour, else a deterministic per-id fallback — run through
- * `contrastSafeColor` so whichever of those it resolves to still holds up
- * against the theme actually on screen.
+ * colour, else a deterministic per-id fallback. Returned exactly as stored —
+ * whatever's shown (chip background, graph node, dot) is meant to be the
+ * literal colour someone picked, not a muted approximation of it. Anywhere
+ * text sits on top of this colour, pair it with `readableTextColor` for the
+ * text itself rather than adjusting the colour here.
  *
  * The per-id fallback is keyed on the tag id so an uncategorized tag keeps the
  * same colour across reloads and across the grid, modal and graph — a random
@@ -477,8 +456,7 @@ export function contrastSafeColor(hex: string): string {
  */
 export function tagColor(tag: { id: number; color: string | null; category?: { color: string } | null }): string {
   const palette = ["#457b9d", "#2a9d8f", "#6d597a", "#e9c46a", "#b56576", "#588157", "#219ebc", "#d62828"];
-  const raw = tag.color || tag.category?.color || palette[tag.id % palette.length];
-  return contrastSafeColor(raw);
+  return tag.color || tag.category?.color || palette[tag.id % palette.length];
 }
 
 /**

@@ -3,7 +3,7 @@
 import { api } from "../api";
 import { store } from "../store";
 import type { Board, Item } from "../types";
-import { appendTagLabel, el, guard, openModal, serialize, tagColor } from "../ui";
+import { appendTagLabel, el, guard, openModal, readableTextColor, serialize, tagColor } from "../ui";
 import { TagInput } from "./tagInput";
 
 export function pickBoard(options: { excludeDynamic?: boolean } = {}): Promise<Board | null> {
@@ -125,7 +125,9 @@ export function openTagsEditorModal(item: Item, onChanged?: (updated: Item) => v
     }
     for (const tag of target.tags) {
       const chip = el("span", { class: "tag-chip" });
-      chip.style.background = tagColor(tag);
+      const color = tagColor(tag);
+      chip.style.background = color;
+      chip.style.color = readableTextColor(color);
       appendTagLabel(chip, tag);
       const removeBtn = el("button", { type: "button", "aria-label": `Remove ${tag.name}` }, "×");
       removeBtn.addEventListener(

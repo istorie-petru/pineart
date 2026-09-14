@@ -19,6 +19,7 @@ import {
   guard,
   isTypingTarget,
   openModal,
+  readableTextColor,
   serialize,
   tagColor,
   toast,
@@ -547,7 +548,9 @@ export function openItemModal(item: Item, options: ItemModalOptions): void {
     container.replaceChildren();
     for (const tag of target.tags) {
       const chip = el("span", { class: "tag-chip" });
-      chip.style.background = tagColor(tag);
+      const color = tagColor(tag);
+      chip.style.background = color;
+      chip.style.color = readableTextColor(color);
       if (tag.link_url) {
         // A creator-category tag with a link opens it in a new tab rather
         // than doing nothing — the whole point of storing the link is to

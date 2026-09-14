@@ -18,7 +18,7 @@ import { DECORATIVE_ICON_KEYS, icon } from "../icons";
 import * as router from "../router";
 import { store } from "../store";
 import type { GraphNode, Item, NearDuplicatePair, SortKey, TagCategory } from "../types";
-import { buildIconPicker, confirmDialog, contrastSafeColor, el, guard, openModal, toast } from "../ui";
+import { buildIconPicker, confirmDialog, el, guard, openModal, toast } from "../ui";
 
 /** Reads the saved physics preference, falling back to the built-in defaults
  * before settings have loaded or if a key is somehow missing. */
@@ -701,7 +701,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
         const row = el("div", { class: "sidebar-list-row" });
         const name = el("span", { class: "row-name" });
         const dot = el("span", { class: "tag-dot" });
-        dot.style.background = contrastSafeColor(category.color);
+        dot.style.background = category.color;
         name.append(dot);
         // The default icon every tag under this category shows unless it has
         // one of its own — see ui.ts's `tagIconKey`.
@@ -892,10 +892,6 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
         graph?.updateNode(selectedTag.id, { color: updated.color ?? undefined });
         selectedTag.color = updated.color;
         await store.loadTags();
-        // The graph node's fill is run through `contrastSafeColor` for text
-        // legibility, so it can look noticeably darker/muted than the exact
-        // swatch just picked — this toast is the confirmation that the pick
-        // itself *did* save, even when the visual change is subtle.
         toast("Tag color updated");
       }),
     );
