@@ -40,6 +40,7 @@ export class TagInput {
   private chosen: Array<{ name: string; tag?: TagSuggestion }> = [];
   private requestId = 0;
   private debounce: number | undefined;
+  private readonly repositionHandler: () => void;
 
   constructor(private readonly options: TagInputOptions = {}) {
     this.element = el("div", { class: "tag-input" });
@@ -54,7 +55,7 @@ export class TagInput {
     this.menu = el("div", { class: "tag-suggestions", role: "listbox" });
 
     const field = el("div", { class: "tag-input-field" });
-    field.append(this.input, this.menu);
+    field.append(this.input);
     this.element.append(this.chipRow, field);
 
     this.input.addEventListener("input", () => this.scheduleFetch());
@@ -66,6 +67,15 @@ export class TagInput {
       // Delayed so a click on a suggestion lands before the menu is torn down.
       window.setTimeout(() => this.closeMenu(), 150);
     });
+    // The menu is not appended here. Every caller of this component sits
+    // inside a modal (or some other box) with `overflow: hidden` — that's
+    // what gives modals their rounded corners — and an absolutely positioned
+    // child can never escape a clipping ancestor no matter how high its
+    // z-index goes. So instead of nesting the menu in `field`, it's portaled
+    // straight onto `document.body` and repositioned to sit under the input
+    // using its live screen coordinates (see `positionMenu`), the same trick
+    // browsers' own <select> dropdowns use to escape overflow clipping.
+    this.repositionHandler = () => this.positionMenu();
   }
 
   get values(): string[] {
@@ -152,8 +162,27 @@ export class TagInput {
       this.closeMenu();
       return;
     }
+    if (!this.menu.isConnected) document.body.append(this.menu);
     this.menu.classList.add("open");
     this.input.setAttribute("aria-expanded", "true");
+    this.positionMenu();
+    // Anything that could move the input out from under the now-detached
+    // menu — scrolling the modal body, resizing the window — has to reposition
+    // it; a portaled element gets none of that for free the way an
+    // absolutely-positioned child of `field` used to.
+    window.addEventListener("scroll", this.repositionHandler, true);
+    window.addEventListener("resize", this.repositionHandler);
+  }
+
+  /** Pins the portaled menu directly under the input using live screen
+   * coordinates, so it tracks the input no matter which clipped/scrolled
+   * ancestor it's actually sitting in. */
+  private positionMenu(): void {
+    const rect = this.input.getBoundingClientRect();
+    this.menu.style.position = "fixed";
+    this.menu.style.left = `${rect.left}px`;
+    this.menu.style.top = `${rect.bottom + 4}px`;
+    this.menu.style.width = `${rect.width}px`;
   }
 
   private highlight(index: number): void {
@@ -259,5 +288,8 @@ export class TagInput {
     this.menu.replaceChildren();
     this.highlighted = -1;
     this.input.setAttribute("aria-expanded", "false");
+    window.removeEventListener("scroll", this.repositionHandler, true);
+    window.removeEventListener("resize", this.repositionHandler);
+    this.menu.remove();
   }
 }

@@ -742,8 +742,16 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 .tag-input input { width: 100%; }
 .tag-input.inline { display: inline-block; min-width: 180px; vertical-align: middle; }
 
+/* Portaled onto `document.body` by TagInput (not nested under
+   `.tag-input-field`) — every caller lives inside a modal with `overflow:
+   hidden` for its rounded corners, and an absolutely positioned child can
+   never escape a clipping ancestor no matter its z-index. `position: fixed`
+   plus JS-computed `left`/`top`/`width` (see `positionMenu` in tagInput.ts)
+   is what actually pins it under the input instead. The z-index just needs
+   to clear every other overlay in the stack — 300 is the highest anything
+   else in this file uses (crop overlay, toast stack). */
 .tag-suggestions {
-  display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 120;
+  display: none; position: fixed; z-index: 310;
   background: var(--color-bg); border: 1px solid var(--color-border);
   border-radius: var(--radius-sm); box-shadow: var(--shadow-hover);
   max-height: 240px; overflow-y: auto;
