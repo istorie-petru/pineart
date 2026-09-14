@@ -57,19 +57,15 @@ export function openGraphRuleModal(
   hint.textContent =
     "Hides the direct edge between the first two categories whenever a tag also connects through the third.";
 
-  const save = el("button", {
-    class: "btn btn-filled",
-    style: "margin-top:4px; width:100%; justify-content:center;",
-  }) as HTMLButtonElement;
+  const save = el("button", { class: "btn btn-filled", style: "justify-content:center;" }) as HTMLButtonElement;
   save.textContent = "Save";
+  const actions = el("div", { class: "actions actions-column" });
+  actions.append(save);
 
-  modal.body.append(heading, nameLabel, nameInput, from.row, to.row, via.row, hint, save);
+  modal.body.append(heading, nameLabel, nameInput, from.row, to.row, via.row, hint, actions);
 
   if (rule) {
-    const remove = el("button", {
-      class: "btn btn-error-tonal",
-      style: "margin-top:10px; width:100%; justify-content:center;",
-    });
+    const remove = el("button", { class: "btn btn-error-tonal", style: "justify-content:center;" });
     remove.textContent = "Delete rule";
     remove.addEventListener(
       "click",
@@ -80,7 +76,7 @@ export function openGraphRuleModal(
         onSaved();
       }),
     );
-    modal.body.append(remove);
+    actions.append(remove);
   }
 
   save.addEventListener(

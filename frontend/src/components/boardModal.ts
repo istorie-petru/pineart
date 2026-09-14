@@ -50,13 +50,22 @@ export function openBoardCreateModal(onCreated: () => void): void {
     queryBlock.hidden = !dynamicToggle.checked;
   });
 
-  const create = el("button", {
-    class: "btn btn-filled",
-    style: "margin-top:18px; width:100%; justify-content:center;",
-  }) as HTMLButtonElement;
+  const create = el("button", { class: "btn btn-filled", style: "justify-content:center;" }) as HTMLButtonElement;
   create.textContent = "Create board";
+  const actions = el("div", { class: "actions actions-column" });
+  actions.append(create);
 
-  modal.body.append(heading, nameLabel, nameInput, descLabel, descInput, dynamicRow, dynamicHint, queryBlock, create);
+  modal.body.append(
+    heading,
+    nameLabel,
+    nameInput,
+    descLabel,
+    descInput,
+    dynamicRow,
+    dynamicHint,
+    queryBlock,
+    actions,
+  );
   nameInput.focus();
 
   void store.loadTags().then(() => {

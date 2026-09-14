@@ -70,7 +70,7 @@ export function openUploadDialog(files: File[], onDone: (outcome: UploadOutcome)
   noBoard.textContent = "None";
   boardSelect.append(noBoard);
 
-  const actions = el("div", { style: "display:flex; gap:10px; margin-top:18px;" });
+  const actions = el("div", { class: "actions" });
   const cancel = el("button", { class: "btn btn-outlined", style: "flex:1; justify-content:center;" });
   cancel.textContent = "Cancel";
   const confirm = el("button", {

@@ -323,13 +323,12 @@ function openDetailedAddModal(result: DiscoverResult, onSaved: (item: Item, crea
     }
   });
 
-  const submit = el("button", {
-    class: "btn btn-filled",
-    style: "margin-top:18px; width:100%; justify-content:center;",
-  }) as HTMLButtonElement;
+  const submit = el("button", { class: "btn btn-filled", style: "justify-content:center;" }) as HTMLButtonElement;
   submit.textContent = "Add to collection";
+  const actions = el("div", { class: "actions actions-column" });
+  actions.append(submit);
 
-  modal.body.append(heading, titleLabel, titleInput, tagsLabel, tagInput.element, boardLabel, boardSelect, submit);
+  modal.body.append(heading, titleLabel, titleInput, tagsLabel, tagInput.element, boardLabel, boardSelect, actions);
 
   submit.addEventListener(
     "click",

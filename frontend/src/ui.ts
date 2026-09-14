@@ -218,8 +218,17 @@ export function openModal(options: {
   if (options.maxWidth) modal.style.maxWidth = options.maxWidth;
 
   const closeBtn = el("button", { class: "close-btn", "aria-label": "Close" }, icon("close"));
+  // On mobile the modal renders as a bottom sheet (see the `@media (max-width:
+  // 640px)` rules in styles.css) — this handle is what makes that draggable.
+  // It used to be a purely decorative `::before` pseudo-element, which looked
+  // like a grab handle but couldn't actually receive touch events, so nothing
+  // happened when someone tried to drag it closed. A real element, listened on
+  // directly, is what makes the drag work; it's also scoped to just the handle
+  // (not the whole sheet) so it doesn't fight scrolling or tapping things
+  // inside the body.
+  const sheetHandle = el("div", { class: "sheet-handle", "aria-hidden": "true" });
   const body = el("div", { class: options.className ?? "simple-modal-body" });
-  modal.append(closeBtn, body);
+  modal.append(closeBtn, sheetHandle, body);
   backdrop.append(modal);
   document.body.append(backdrop);
   // Moves keyboard focus into the modal the instant it opens — otherwise
@@ -291,6 +300,52 @@ export function openModal(options: {
   });
   document.addEventListener("keydown", onKey);
 
+  // Drag-to-close for the mobile bottom sheet. Follows the finger 1:1 while
+  // dragging (no CSS transition fighting the pointer), then on release either
+  // completes the dismiss (dragged past a quarter of the sheet's own height)
+  // or snaps back — the transition for that snap/dismiss animation is
+  // `.modal`'s own `transition: transform`, scoped to the same mobile
+  // breakpoint this only runs at, so desktop's centered dialogs are
+  // unaffected either way.
+  let dragPointerId: number | null = null;
+  let dragStartY = 0;
+  const isMobileSheet = () => window.matchMedia("(max-width: 640px)").matches;
+  const resetDragState = () => {
+    dragPointerId = null;
+    modal.style.transition = "";
+    modal.style.transform = "";
+  };
+  sheetHandle.addEventListener("pointerdown", (event) => {
+    if (!isMobileSheet()) return;
+    dragPointerId = event.pointerId;
+    dragStartY = event.clientY;
+    modal.style.transition = "none";
+    sheetHandle.setPointerCapture(event.pointerId);
+  });
+  sheetHandle.addEventListener("pointermove", (event) => {
+    if (dragPointerId !== event.pointerId) return;
+    const delta = Math.max(0, event.clientY - dragStartY);
+    modal.style.transform = `translateY(${delta}px)`;
+  });
+  const endDrag = (event: PointerEvent) => {
+    if (dragPointerId !== event.pointerId) return;
+    const delta = Math.max(0, event.clientY - dragStartY);
+    const dismissThreshold = modal.getBoundingClientRect().height * 0.25;
+    modal.style.transition = "";
+    if (delta > dismissThreshold) {
+      modal.style.transform = "translateY(100%)";
+      setTimeout(close, 180);
+    } else {
+      modal.style.transform = "";
+    }
+    dragPointerId = null;
+  };
+  sheetHandle.addEventListener("pointerup", endDrag);
+  sheetHandle.addEventListener("pointercancel", (event) => {
+    if (dragPointerId !== event.pointerId) return;
+    resetDragState();
+  });
+
   return { backdrop, body, close };
 }
 
@@ -305,7 +360,7 @@ export function confirmDialog(message: string, confirmLabel = "Confirm"): Promis
     });
     const text = el("p", { class: "hint" });
     text.textContent = message;
-    const row = el("div", { style: "display:flex; gap:10px; margin-top:18px;" });
+    const row = el("div", { class: "actions" });
     const cancel = el("button", { class: "btn btn-outlined", style: "flex:1; justify-content:center;" });
     cancel.textContent = "Cancel";
     const confirm = el("button", { class: "btn btn-error-tonal", style: "flex:1; justify-content:center;" });

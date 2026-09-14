@@ -419,10 +419,20 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 .tag-chip button { background: none; border: none; color: inherit; cursor: pointer; padding: 0; line-height: 1; }
 .tag-chip a { color: inherit; text-decoration: underline; text-decoration-style: dotted; }
 .tag-chip .micon svg { width: 12px; height: 12px; }
+/* The one footer convention every modal shares: a divider, consistent
+   padding above it, and the buttons that close out the dialog below it.
+   Originally just the item modal's own footer — now the common `.actions`
+   class every modal's button row uses, so "Save", "Cancel/Confirm",
+   "Keep selected, trash the rest" etc. all sit in a visually identical
+   footer regardless of which modal they belong to. `.actions-column`
+   stacks full-width buttons (the prevailing pattern in the short form
+   modals — Save, then a full-width Delete below it) instead of the
+   row-and-wrap default, without giving up the shared divider/spacing. */
 .modal .actions {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--color-border);
 }
+.modal .actions.actions-column { flex-direction: column; align-items: stretch; }
 .modal .rec-strip { display: flex; gap: 8px; overflow-x: auto; margin-top: 8px; }
 .modal .rec-strip img { width: 64px; height: 64px; border-radius: 8px; flex-shrink: 0; object-fit: cover; cursor: pointer; }
 .modal .close-btn {
@@ -430,6 +440,10 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
   border: none; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; z-index: 5;
   display: flex; align-items: center; justify-content: center;
 }
+/* Hidden on desktop, where the modal is a centered dialog with nothing to
+   drag closed — shown (and made interactive) only in the mobile bottom-sheet
+   layout below. */
+.modal .sheet-handle { display: none; }
 /* Click-to-edit text in the item modal: it has to look like text, not like a
    form field, while still advertising that it is editable on hover. */
 .editable { cursor: text; border-radius: 6px; padding: 2px 4px; margin-left: -4px; transition: background var(--transition-fast); }
@@ -454,8 +468,43 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 /* The `.modal` shell itself caps its height and clips overflow (rounded
    corners, animation), so a body that can grow past that — like a duplicates
    review with dozens of groups — needs its own scroll region rather than
-   silently clipping the bottom half of the list. */
-.duplicates-modal-body { max-height: 80vh; overflow-y: auto; }
+   silently clipping the bottom half of the list. Structured as a proper
+   header / scrolling body / footer, each with its own padding, rather than
+   one undifferentiated padded box — only the middle section scrolls
+   (flex:1 + min-height:0), so the heading up top and the action buttons
+   down bottom are always visible and never compete with `.modal`'s own
+   88vh cap and `overflow: hidden` the way a single flowing block did
+   (that previously let content push past the cap and get silently clipped,
+   taking the bottom row's button with it once scrolled that far). */
+.duplicates-modal-body {
+  display: flex; flex-direction: column; width: 100%; padding: 0;
+  max-height: 80vh; box-sizing: border-box;
+}
+.duplicates-modal-header {
+  flex-shrink: 0; padding: 20px 22px 14px; border-bottom: 1px solid var(--color-border);
+}
+.duplicates-modal-header h3 { margin: 0 0 4px; font-size: 15px; }
+.duplicates-modal-header p.hint { margin: 0; }
+.duplicates-modal-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 22px; }
+.duplicates-modal-scroll .sidebar-list { margin-bottom: 0; }
+/* flex-end, not space-between — the footer's only guaranteed member is
+   Close. "Trash all extras" is prepended when there's something to resolve
+   and pushes itself to the opposite edge via `margin-right: auto` (in
+   settings.ts) rather than the footer assuming it's always there. */
+.duplicates-modal-footer {
+  flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end;
+  gap: 10px; padding: 14px 22px; border-top: 1px solid var(--color-border);
+}
+.duplicates-modal-footer .hint { margin: 0; }
+/* Sticky, not just top-of-list — used where the bulk "resolve all" button
+   sits inside the scrolling list itself (the Tags → Cleanup panel, which has
+   no separate footer) so it stays reachable without scrolling back up. The
+   duplicates modal instead puts this button in `.duplicates-modal-footer`,
+   which is already pinned outside the scroll region. */
+.duplicates-toolbar {
+  position: sticky; top: 0; z-index: 1; background: var(--color-bg);
+  padding-bottom: 10px; margin-bottom: 6px;
+}
 .icon-picker { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 6px; }
 .icon-picker button {
   aspect-ratio: 1; border-radius: 10px; border: 1px solid var(--color-border);
@@ -779,15 +828,16 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
   .modal .img-pane { min-height: 240px; flex: none; }
   .modal .info-pane { flex: none; }
 
-  /* The pin modal specifically (see the `.item-modal` classes added in
-     itemModal.ts) becomes a bottom sheet: anchored to the bottom edge,
-     scrolling as one piece rather than image-fixed/info-scrolling, and
-     tall enough to nearly cover the screen. The image drops to a banner-like
-     strip up top instead of dominating — this view is for reading and
-     editing the metadata below it, not for looking at the picture, which is
-     already what opening the pin in the first place was for. */
-  .item-modal-backdrop { align-items: flex-end; padding: 0; }
-  .modal.item-modal {
+  /* Every modal becomes a bottom sheet on mobile, not just the pin viewer:
+     anchored to the bottom edge, full width, rounded on the top corners
+     only, sliding up rather than scaling in from the center. A centered
+     dialog that shrinks to fit a phone screen still reads as "desktop UI
+     squeezed down"; anchoring to the bottom edge is the pattern people
+     already know from every native share sheet / action sheet, and it
+     keeps the close button and footer buttons reachable near the thumb
+     instead of stranded mid-screen. */
+  .modal-backdrop { align-items: flex-end; padding: 0; }
+  .modal {
     width: 100%; max-width: 100%; height: auto; max-height: 92vh;
     border-radius: 20px 20px 0 0;
     overflow-y: auto; overflow-x: hidden;
@@ -796,19 +846,39 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
        bottom edge" in a way a centered scale-in never would, which is the
        whole point of a bottom sheet as a pattern. */
     animation: sheet-slide-up 340ms cubic-bezier(0.16, 1, 0.3, 1);
+    /* Drives the drag-to-close snap-back/dismiss in ui.ts — off during the
+       drag itself (set to `none` inline so the sheet follows the finger with
+       no lag) and back on for the release animation. */
+    transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
   }
   @keyframes sheet-slide-up {
     from { transform: translateY(100%); }
     to { transform: translateY(0); }
   }
-  /* A small grab-handle, the standard "this is a sheet" affordance — sits
-     over the image, so it gets the same semi-opaque treatment the close
-     button already uses there for contrast against whatever photo is behind it. */
-  .modal.item-modal::before {
-    content: ""; position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
-    width: 36px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.85);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); z-index: 6;
+  /* The grab handle: a real, touchable element (not a decorative `::before`
+     — those can't receive pointer events, which is why dragging the sheet
+     used to do nothing). Sized well past its 36×4 visible bar for a proper
+     touch target; the bar itself is drawn with `::after` so the hit area
+     can stay larger than what's actually visible. The pin viewer has an
+     image right underneath it, so there it gets the semi-opaque treatment
+     the close button already uses there for contrast against the photo. */
+  .modal .sheet-handle {
+    display: block; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+    width: 64px; height: 28px; z-index: 6; cursor: grab; touch-action: none;
   }
+  .modal .sheet-handle::after {
+    content: ""; position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    width: 36px; height: 4px; border-radius: 2px; background: var(--color-border);
+  }
+  .modal.item-modal .sheet-handle::after {
+    background: rgba(255, 255, 255, 0.85); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+
+  /* The pin modal specifically (see the `.item-modal` classes added in
+     itemModal.ts): the image drops to a banner-like strip up top instead of
+     dominating — this view is for reading and editing the metadata below
+     it, not for looking at the picture, which is already what opening the
+     pin in the first place was for. */
   .modal.item-modal .img-pane {
     flex: none; height: 200px; min-height: 0; overflow: hidden; padding: 0;
   }
@@ -818,6 +888,13 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
   .modal.item-modal .info-pane {
     flex: none; overflow-y: visible; padding-bottom: calc(20px + env(safe-area-inset-bottom));
   }
+
+  /* The duplicates modal manages its own scroll region against `.modal`'s
+     max-height (see the comment on `.duplicates-modal-body`) — it needs the
+     same headroom bump as the sheet itself so it isn't left capped to the
+     old desktop-era 80vh once the sheet can go to 92vh. */
+  .duplicates-modal-header { padding-top: 24px; }
+  .duplicates-modal-body { max-height: 92vh; }
 
   .board-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .drawer { width: 100%; right: -100%; }

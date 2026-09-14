@@ -79,13 +79,12 @@ export function promptTags(title: string): Promise<string[] | null> {
     const label = el("label");
     label.textContent = "Tags";
     const tagInput = new TagInput({ placeholder: "Start typing — suggestions appear as you go" });
-    const submit = el("button", {
-      class: "btn btn-filled",
-      style: "margin-top:18px; width:100%; justify-content:center;",
-    });
+    const submit = el("button", { class: "btn btn-filled", style: "justify-content:center;" });
     submit.textContent = "Apply";
+    const actions = el("div", { class: "actions actions-column" });
+    actions.append(submit);
 
-    modal.body.append(heading, label, tagInput.element, submit);
+    modal.body.append(heading, label, tagInput.element, actions);
     tagInput.focus();
 
     const commit = () => {

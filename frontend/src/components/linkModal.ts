@@ -25,19 +25,15 @@ export function openLinkModal(link: Link | null, onSaved: () => void): void {
   iconLabel.textContent = "Icon";
   const iconPicker = buildIconPicker(DECORATIVE_ICON_KEYS, link?.icon ?? "globe");
 
-  const save = el("button", {
-    class: "btn btn-filled",
-    style: "margin-top:18px; width:100%; justify-content:center;",
-  }) as HTMLButtonElement;
+  const save = el("button", { class: "btn btn-filled", style: "justify-content:center;" }) as HTMLButtonElement;
   save.textContent = "Save";
+  const actions = el("div", { class: "actions actions-column" });
+  actions.append(save);
 
-  modal.body.append(heading, nameLabel, nameInput, urlLabel, urlInput, iconLabel, iconPicker.element, save);
+  modal.body.append(heading, nameLabel, nameInput, urlLabel, urlInput, iconLabel, iconPicker.element, actions);
 
   if (link) {
-    const remove = el("button", {
-      class: "btn btn-error-tonal",
-      style: "margin-top:10px; width:100%; justify-content:center;",
-    });
+    const remove = el("button", { class: "btn btn-error-tonal", style: "justify-content:center;" });
     remove.textContent = "Delete link";
     remove.addEventListener(
       "click",
@@ -48,7 +44,7 @@ export function openLinkModal(link: Link | null, onSaved: () => void): void {
         onSaved();
       }),
     );
-    modal.body.append(remove);
+    actions.append(remove);
   }
 
   save.addEventListener(

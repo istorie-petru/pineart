@@ -1280,7 +1280,7 @@ function highestQuality(items: Item[]): Item {
  * the Data Management "Check & merge duplicates" action below, so the two
  * entry points don't carry two copies of the same scan-and-resolve logic.
  */
-async function renderNearDuplicatesInto(container: HTMLElement): Promise<void> {
+async function renderNearDuplicatesInto(container: HTMLElement, toolbarSlot?: HTMLElement): Promise<void> {
   container.replaceChildren(el("span", { class: "hint" }, "Scanning…"));
   const pairs = await api.nearDuplicates();
   container.replaceChildren();
@@ -1291,6 +1291,52 @@ async function renderNearDuplicatesInto(container: HTMLElement): Promise<void> {
 
   // Groups with the most copies to sort out are the most worth seeing first.
   const groups = groupNearDuplicates(pairs).sort((a, b) => b.length - a.length);
+
+  // Reviewing dozens of groups one "Keep selected, trash the rest" click at a
+  // time doesn't scale — most of the time the highest-quality copy already
+  // picked as the default is the right call for every group. This collects
+  // one resolver per group (respecting whatever the person has manually
+  // selected so far) so a single button can run all of them, while the
+  // per-group buttons still work individually for anyone who wants to check
+  // each group first.
+  //
+  // `toolbarSlot`, when given (the duplicates modal's footer), is already
+  // pinned outside the scrolling list, so the button goes straight in there.
+  // Without it (the Tags → Cleanup panel, which has no separate footer) the
+  // button gets its own sticky wrapper at the top of `container` instead.
+  const resolvers: Array<() => Promise<number>> = [];
+  const extraCount = groups.reduce((sum, group) => sum + group.length - 1, 0);
+  const resolveAllBtn = el(
+    "button",
+    { class: "btn btn-tonal" },
+    `${icon("trash", true)} Trash all extras (${extraCount})`,
+  );
+  resolveAllBtn.addEventListener(
+    "click",
+    guard(async () => {
+      const pending = [...resolvers];
+      resolvers.length = 0;
+      resolveAllBtn.remove();
+      const counts = await Promise.all(pending.map((resolve) => resolve()));
+      const total = counts.reduce((sum, n) => sum + n, 0);
+      toast(total === 1 ? "Moved 1 duplicate to trash" : `Moved ${total} duplicates to trash`);
+    }),
+  );
+  // What to tear down once every group has been resolved and the button is
+  // no longer meaningful — just the button itself when it lives directly in
+  // the modal's footer, or the whole sticky wrapper when one was created for
+  // it below.
+  let removeToolbar: () => void;
+  if (toolbarSlot) {
+    resolveAllBtn.style.marginRight = "auto";
+    toolbarSlot.prepend(resolveAllBtn);
+    removeToolbar = () => resolveAllBtn.remove();
+  } else {
+    const toolbar = el("div", { class: "duplicates-toolbar row-actions" });
+    toolbar.append(resolveAllBtn);
+    container.append(toolbar);
+    removeToolbar = () => toolbar.remove();
+  }
 
   for (const group of groups) {
     const best = highestQuality(group);
@@ -1347,15 +1393,27 @@ async function renderNearDuplicatesInto(container: HTMLElement): Promise<void> {
     }
     paintSelection();
 
+    // Shared by the row's own button and the "Trash all extras" bulk action —
+    // both just need "trash whatever isn't currently selected for this group,
+    // then remove the row and say how many went to trash."
+    const resolveGroup = async (): Promise<number> => {
+      const toTrash = group.filter((item) => item.id !== keptId);
+      await Promise.all(toTrash.map((item) => api.deleteItem(item.id)));
+      const index = resolvers.indexOf(resolveGroup);
+      if (index !== -1) resolvers.splice(index, 1);
+      row.remove();
+      if (!resolvers.length) removeToolbar();
+      return toTrash.length;
+    };
+    resolvers.push(resolveGroup);
+
     const actions = el("div", { class: "row-actions", style: "margin-top:10px;" });
     const resolve = el("button", { class: "btn btn-tonal" }, "Keep selected, trash the rest");
     resolve.addEventListener(
       "click",
       guard(async () => {
-        const toTrash = group.filter((item) => item.id !== keptId);
-        await Promise.all(toTrash.map((item) => api.deleteItem(item.id)));
-        row.remove();
-        toast(toTrash.length === 1 ? "Moved 1 duplicate to trash" : `Moved ${toTrash.length} duplicates to trash`);
+        const trashedCount = await resolveGroup();
+        toast(trashedCount === 1 ? "Moved 1 duplicate to trash" : `Moved ${trashedCount} duplicates to trash`);
       }),
     );
     actions.append(resolve);
@@ -1365,12 +1423,26 @@ async function renderNearDuplicatesInto(container: HTMLElement): Promise<void> {
 }
 
 function openDuplicatesModal(): void {
-  const modal = openModal({ maxWidth: "620px", className: "duplicates-modal-body" });
+  const modal = openModal({ maxWidth: "640px", className: "duplicates-modal-body" });
+
+  const header = el("div", { class: "duplicates-modal-header" });
   const heading = el("h3");
   heading.textContent = "Check & merge duplicates";
-  const list = el("div", { class: "sidebar-list", style: "margin-top:12px;" });
-  modal.body.append(heading, list);
-  void renderNearDuplicatesInto(list);
+  const subhead = el("p", { class: "hint" });
+  subhead.textContent = "Pick which copy to keep for each match below — the rest move to trash.";
+  header.append(heading, subhead);
+
+  const scroll = el("div", { class: "duplicates-modal-scroll" });
+  const list = el("div", { class: "sidebar-list" });
+  scroll.append(list);
+
+  const footer = el("div", { class: "duplicates-modal-footer" });
+  const closeBtn = el("button", { class: "btn btn-outlined" }, "Close");
+  closeBtn.addEventListener("click", () => modal.close());
+  footer.append(closeBtn);
+
+  modal.body.append(header, scroll, footer);
+  void renderNearDuplicatesInto(list, footer);
 }
 
 /**

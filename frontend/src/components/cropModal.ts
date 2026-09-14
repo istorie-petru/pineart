@@ -74,7 +74,7 @@ export function openCropModal(options: CropModalOptions): void {
   const image = el("img", { src: options.item.urls.display, alt: "" }) as HTMLImageElement;
   stage.append(image);
 
-  const buttons = el("div", { style: "display:flex; gap:10px; margin-top:18px;" });
+  const buttons = el("div", { class: "actions" });
   const cancel = el("button", { class: "btn btn-outlined", style: "flex:1; justify-content:center;" });
   cancel.textContent = "Cancel";
   const apply = el("button", { class: "btn btn-filled", style: "flex:1; justify-content:center;" }) as HTMLButtonElement;
