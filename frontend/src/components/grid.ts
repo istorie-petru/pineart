@@ -92,12 +92,17 @@ export class Grid {
     this.root.append(this.container, this.emptyEl, this.sentinel, this.footer);
     this.disconnect = observe(this.container, () => this.relayout());
 
-    // Click on empty grid background (not on a card) clears the current bulk
-    // selection — the standard "click outside to deselect" pattern. Cards
-    // themselves stop the click from reaching here via their own handlers'
-    // early returns, so this only ever fires for a genuine background click.
+    // Click on empty grid background clears the current bulk selection — the
+    // standard "click outside to deselect" pattern. Cards absolutely
+    // positioned by the masonry layout leave gutters between them that belong
+    // to `this.container` itself, so `event.target === this.container` is
+    // true both for a genuine click below/around all the cards *and* for a
+    // click in the gap between two cards. Only the former should deselect —
+    // so a click is only treated as "outside" the grid when it falls below
+    // the bottom edge of every card currently on screen.
     this.container.addEventListener("click", (event) => {
       if (event.target !== this.container || this.marqueeDidDrag) return;
+      if (event.clientY < this.contentBottom()) return;
       this.clearSelection();
     });
 
@@ -323,6 +328,19 @@ export class Grid {
       this.options.onToggleSelect?.(item, selected);
     }
     this.lastClickedId = item.id;
+  }
+
+  /** The lowest bottom edge among all currently rendered cards, in viewport
+   * coordinates — used to tell a click below the grid's content apart from a
+   * click in a gutter between cards, since both land on `this.container` as
+   * their `event.target`. Returns `-Infinity` when the grid is empty, so any
+   * click counts as "outside". */
+  private contentBottom(): number {
+    let maxBottom = -Infinity;
+    for (const entry of this.entries) {
+      maxBottom = Math.max(maxBottom, entry.el.getBoundingClientRect().bottom);
+    }
+    return maxBottom;
   }
 
   /** Clears every selected card and notifies the caller for each — used by

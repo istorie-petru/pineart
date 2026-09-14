@@ -19,6 +19,20 @@ def test_manual_board_keeps_its_arrangement(client):
     assert client.get(f"/api/boards/{board['id']}").json()["item_count"] == 3
 
 
+def test_board_tags_only_lists_tags_on_the_boards_items(client):
+    on_board = upload(client, tags="landscape", image_kwargs={"seed": 1})["item"]["id"]
+    off_board = upload(client, tags="portrait", image_kwargs={"seed": 2})["item"]["id"]
+    _tag_id(client, "unused-elsewhere")  # exists globally, on no item at all
+
+    board = client.post("/api/boards", json={"name": "Studies"}).json()
+    client.put(f"/api/boards/{board['id']}/items", json={"item_ids": [on_board]})
+
+    names = {t["name"] for t in client.get(f"/api/boards/{board['id']}/tags").json()}
+    assert names == {"landscape"}
+    assert "portrait" not in names
+    assert off_board  # sanity: the other item exists but isn't on this board
+
+
 def test_board_deletion_leaves_items_alone(client):
     item_id = upload(client)["item"]["id"]
     board = client.post("/api/boards", json={"name": "Temp"}).json()

@@ -7,8 +7,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import Board, BoardItem, BoardQueryTag, BoardSubboardTag, Item, Tag
-from ..schemas import BoardIn, BoardItemsIn, BoardOut, BoardPatch, CitationExport, SubboardTagIn
+from ..models import Board, BoardItem, BoardQueryTag, BoardSubboardTag, Item, ItemTag, Tag
+from ..schemas import BoardIn, BoardItemsIn, BoardOut, BoardPatch, CitationExport, SubboardTagIn, TagOut
 from ..serializers import board_out
 from ..services import citation, queries, search
 from ..services.tags import slugify
@@ -152,6 +152,29 @@ def board_citation(board_id: int, db: Session = Depends(get_db)) -> CitationExpo
         ).order_by(BoardItem.position)
     items = list(db.scalars(stmt).all())
     return citation.export_for(items)
+
+
+@router.get("/{board_id}/tags", response_model=list[TagOut])
+def board_tags(board_id: int, db: Session = Depends(get_db)) -> list[TagOut]:
+    """Tags actually carried by this board's items — the candidate list for
+    activating a subboard tab.
+
+    The subboard picker used to offer every tag in the collection, which meant
+    scrolling past hundreds of unrelated tags to find the handful that could
+    plausibly split this particular board. Scoping to tags the board's items
+    actually have makes every option a subboard that would show at least one
+    item.
+    """
+    board = _get_board(db, board_id)
+    item_ids = select(queries.build_query(db, parsed=search.ParsedQuery(), board=board).subquery().c.id)
+    tags = db.scalars(
+        select(Tag)
+        .join(ItemTag, ItemTag.tag_id == Tag.id)
+        .where(ItemTag.item_id.in_(item_ids))
+        .distinct()
+        .order_by(Tag.name)
+    ).all()
+    return [TagOut.model_validate(t) for t in tags]
 
 
 @router.put("/{board_id}/subboard-tags/{tag_id}", response_model=BoardOut)

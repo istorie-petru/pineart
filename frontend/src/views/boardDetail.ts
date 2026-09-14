@@ -260,9 +260,11 @@ export function renderBoardDetail(root: HTMLElement, boardId: number): () => voi
   }
 
   function openSubboardPicker(): void {
-    void store.loadTags().then(() => {
+    // Scoped to tags this board's items actually carry — not the full tag
+    // list, most of which wouldn't match anything here anyway.
+    void api.boardTags(boardId).then((tags) => {
       const active = new Set((board?.subboard_tags ?? []).map((t) => t.id));
-      openTagToggleModal(store.tags, active, async (tag, enabled) => {
+      openTagToggleModal(tags, active, async (tag, enabled) => {
         await api.setSubboardTag(boardId, tag.id, enabled);
         await refreshHeader();
       });
@@ -394,7 +396,7 @@ function openTagToggleModal(
   }
   if (!tags.length) {
     const empty = el("p", { class: "hint" });
-    empty.textContent = "No tags yet.";
+    empty.textContent = "No tags on this board's items yet.";
     list.append(empty);
   }
   modal.body.append(heading, hint, list);

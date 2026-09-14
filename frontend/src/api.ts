@@ -263,6 +263,7 @@ export const api = {
   setSubboardTag: (boardId: number, tagId: number, isActive: boolean) =>
     request<Board>(`/api/boards/${boardId}/subboard-tags/${tagId}`, json("PUT", { is_active: isActive })),
   boardCitation: (id: number) => request<CitationExport>(`/api/boards/${id}/citation`),
+  boardTags: (id: number) => request<Tag[]>(`/api/boards/${id}/tags`),
 
   // --- tags ---
   listTags: () => request<Tag[]>("/api/tags"),
