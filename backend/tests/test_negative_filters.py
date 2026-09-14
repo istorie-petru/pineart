@@ -28,6 +28,31 @@ def test_excluding_a_tag_keeps_untagged_items(client):
     assert tagged["id"] not in result
 
 
+def test_excluding_a_tag_with_bang_syntax(client):
+    """`tag:!name` is the other spelling of exclusion, alongside `-tag:name` —
+    same NOT EXISTS behavior under it, just written with the negation on the
+    value instead of the whole token."""
+    keep = upload(client, tags="landscape", image_kwargs={"seed": 1})["item"]
+    drop = upload(client, tags="landscape, portrait", image_kwargs={"seed": 2})["item"]
+
+    assert ids(client, "tag:landscape tag:!portrait") == {keep["id"]}
+    assert ids(client, "tag:!portrait") == {keep["id"]}
+    # Both spellings parse to the same exclusion and can mix freely.
+    assert ids(client, "tag:!portrait") == ids(client, "-tag:portrait")
+
+    untagged = upload(client, image_kwargs={"seed": 3})["item"]
+    assert untagged["id"] in ids(client, "tag:!portrait")
+    assert drop["id"] not in ids(client, "tag:!portrait")
+
+
+def test_excluding_a_quoted_tag_with_bang_syntax(client):
+    keep = upload(client, image_kwargs={"seed": 1})["item"]
+    upload(client, tags="Shōyō Hinata", image_kwargs={"seed": 2})
+
+    assert ids(client, "tag:!shoyo-hinata") == {keep["id"]}
+    assert ids(client, 'tag:!"Shōyō Hinata"') == {keep["id"]}
+
+
 def test_excluding_by_accented_name_or_slug(client):
     keep = upload(client, image_kwargs={"seed": 1})["item"]
     upload(client, tags="Shōyō Hinata", image_kwargs={"seed": 2})

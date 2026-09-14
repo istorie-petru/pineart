@@ -35,8 +35,15 @@ const SWATCHES = [
 
 const ORIENTATIONS = ["portrait", "landscape", "square"] as const;
 
-/** Matches any filter token, used to strip them out and leave the free text. */
-const TOKEN_PATTERN = /(tag|color|orientation):("[^"]+"|\S+)/gi;
+/**
+ * Matches any filter token, used to strip them out and leave the free text.
+ * A token can be negated two ways — a leading "-" or a "!" right after the
+ * colon (`-tag:portrait` / `tag:!portrait`, see search.py's `TOKEN_RE` for
+ * why both exist) — both have to be included here, or stripping a negated
+ * token out to compute the free-text remainder leaves its "-"/"!" behind as
+ * orphaned text.
+ */
+const TOKEN_PATTERN = /-?(tag|color|orientation):!?("[^"]+"|\S+)/gi;
 
 const SORT_LABELS: Record<SortKey, string> = {
   random: "Random",
@@ -202,13 +209,19 @@ export class SearchBar {
     this.syncChipStates();
   }
 
+  /** True only for a *positive* match — a negated token (excluding this
+   * value) is not "this value is selected", which is what every current
+   * caller (chip/swatch highlighting) means by "active". */
   private hasToken(key: string, value: string): boolean {
-    return this.tokens(key).includes(value.toLowerCase());
+    return this.tokens(key).some((t) => !t.negated && t.value === value.toLowerCase());
   }
 
-  private tokens(key: string): string[] {
-    const matches = this.input.value.matchAll(new RegExp(`${key}:("[^"]+"|\\S+)`, "gi"));
-    return Array.from(matches, (m) => m[1].replace(/"/g, "").toLowerCase());
+  private tokens(key: string): { value: string; negated: boolean }[] {
+    const matches = this.input.value.matchAll(new RegExp(`(-)?${key}:(!)?("[^"]+"|\\S+)`, "gi"));
+    return Array.from(matches, (m) => ({
+      value: m[3].replace(/"/g, "").toLowerCase(),
+      negated: Boolean(m[1] || m[2]),
+    }));
   }
 
   /**
@@ -229,15 +242,27 @@ export class SearchBar {
     };
     const list = state[key as keyof typeof state];
     const needle = value.toLowerCase();
-    const index = list.indexOf(needle);
+    // Only a *positive* match toggles off here — these chips/swatches only
+    // ever add the positive form, so clicking one while `tag:!x` sits in the
+    // bar (typed by hand) should not touch that exclusion at all. Without
+    // this, rebuilding the bar below from `state` — which is exactly what a
+    // manually-typed `-tag:`/`tag:!` token round-trips through — would have
+    // silently dropped that exclusion the moment any chip was clicked, since
+    // this function never re-adds a token it didn't know to preserve.
+    const index = list.findIndex((t) => !t.negated && t.value === needle);
     if (index >= 0) list.splice(index, 1);
-    else list.push(needle);
+    else list.push({ value: needle, negated: false });
 
     const freeText = this.input.value.replace(TOKEN_PATTERN, " ").split(/\s+/).filter(Boolean).join(" ");
+    const format = (tokenKey: string, t: { value: string; negated: boolean }) => {
+      const prefix = t.negated ? "-" : "";
+      const val = t.value.includes(" ") ? `"${t.value}"` : t.value;
+      return `${prefix}${tokenKey}:${val}`;
+    };
     const tokens = [
-      ...state.tag.map((v) => (v.includes(" ") ? `tag:"${v}"` : `tag:${v}`)),
-      ...state.color.map((v) => `color:${v}`),
-      ...state.orientation.map((v) => `orientation:${v}`),
+      ...state.tag.map((t) => format("tag", t)),
+      ...state.color.map((t) => format("color", t)),
+      ...state.orientation.map((t) => format("orientation", t)),
     ];
     this.input.value = [...tokens, freeText].filter(Boolean).join(" ");
     this.emit();
@@ -286,8 +311,12 @@ export class SearchBar {
   private applyGraphGating(matching: TagSuggestion[]): TagSuggestion[] {
     if (!store.graphRules.length) return matching;
 
+    // An excluded tag (`-tag:x` / `tag:!x`) hasn't been "picked" in the sense
+    // a gating rule cares about — it's the opposite, so it must not open a
+    // gate the way actually selecting the via-tag would.
     const selectedTags = this.tokens("tag")
-      .map((slug) => store.tags.find((t) => t.slug === slug))
+      .filter((t) => !t.negated)
+      .map((t) => store.tags.find((tag) => tag.slug === t.value))
       .filter((t): t is (typeof store.tags)[number] => Boolean(t));
 
     return matching.filter((tag) => {

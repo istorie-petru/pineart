@@ -16,11 +16,17 @@ from sqlalchemy.orm import Session
 
 from ..models import Item, Tag
 
-# A leading "-" negates any token: `-tag:portrait` excludes rather than requires.
+# A token can be negated two ways: a leading "-" (`-tag:portrait`) or a "!"
+# right after the colon (`tag:!portrait`) — both exclude rather than require.
+# The two forms exist because people reach for either instinctively (shell/
+# search-engine muscle memory favors the leading "-"; "not this value" reads
+# more naturally as "!" placed on the value itself), and neither is more
+# "correct" than the other, so both are accepted rather than picking one and
+# leaving the other's typing feel unsupported.
 # `is:` covers the questions that are about absence itself ("which of these have
 # no tags at all?"), which no amount of negating a specific tag can express.
 TOKEN_RE = re.compile(
-    r"(?P<negate>-)?(?P<key>tag|color|orientation|is):(?P<value>\"[^\"]+\"|\S+)",
+    r"(?P<negate>-)?(?P<key>tag|color|orientation|is):(?P<bang>!)?(?P<value>\"[^\"]+\"|\S+)",
     re.IGNORECASE,
 )
 VALID_ORIENTATIONS = {"portrait", "landscape", "square"}
@@ -129,7 +135,7 @@ def parse(query: str | None) -> ParsedQuery:
     for match in TOKEN_RE.finditer(query):
         key = match.group("key").lower()
         value = match.group("value").strip('"')
-        negated = bool(match.group("negate"))
+        negated = bool(match.group("negate")) or bool(match.group("bang"))
 
         if key == "tag":
             (parsed.exclude_tags if negated else parsed.tags).append(value.lower())
