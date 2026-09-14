@@ -32,7 +32,12 @@ export class TagInput {
   private readonly menu: HTMLElement;
   private suggestions: TagSuggestion[] = [];
   private highlighted = -1;
-  private chosen: string[] = [];
+  // Not just names: a committed chip needs the matching suggestion's color
+  // and category (when it was picked from one — a brand-new tag typed for
+  // the first time has neither yet) so `renderChips` can show it in its
+  // real color instead of one flat accent for every tag, the way the
+  // read-only chips elsewhere (item modal, tags editor) already do.
+  private chosen: Array<{ name: string; tag?: TagSuggestion }> = [];
   private requestId = 0;
   private debounce: number | undefined;
 
@@ -64,7 +69,7 @@ export class TagInput {
   }
 
   get values(): string[] {
-    return [...this.chosen];
+    return this.chosen.map((entry) => entry.name);
   }
 
   /** Anything typed but not yet committed, so a half-finished tag is not lost. */
@@ -89,7 +94,9 @@ export class TagInput {
       // Out-of-order responses would otherwise show suggestions for a query the
       // user has already typed past.
       if (id !== this.requestId) return;
-      let filtered = results.filter((tag) => !this.chosen.includes(tag.name));
+      let filtered = results.filter(
+        (tag) => !this.chosen.some((entry) => entry.name === tag.name),
+      );
       // Typing something that is not an existing tag should offer a gentle
       // nudge, not a wall of options: once there is no exact match, only the
       // single closest tag is worth showing next to "Create <query>". An empty
@@ -189,13 +196,20 @@ export class TagInput {
       this.commit(this.pending);
     }
     if (event.key === "Backspace" && !this.input.value && this.chosen.length) {
-      this.remove(this.chosen[this.chosen.length - 1]);
+      this.remove(this.chosen[this.chosen.length - 1].name);
     }
   }
 
   private commit(name: string): void {
     const clean = name.trim();
     if (!clean) return;
+    // Looked up here, not passed in by callers — every call site (a clicked
+    // suggestion row, Enter on a highlighted row, "Create …", a trailing
+    // comma) already funnels through this one `commit(name)`, and whatever
+    // was just fetched into `this.suggestions` is still around at this
+    // point, so an exact-name match here is the same tag the person was
+    // just looking at, complete with its real color and category.
+    const matched = this.suggestions.find((tag) => tag.name.toLowerCase() === clean.toLowerCase());
     this.input.value = "";
     this.closeMenu();
 
@@ -203,8 +217,8 @@ export class TagInput {
       this.options.onPick?.(clean);
       return;
     }
-    if (!this.chosen.some((existing) => existing.toLowerCase() === clean.toLowerCase())) {
-      this.chosen.push(clean);
+    if (!this.chosen.some((existing) => existing.name.toLowerCase() === clean.toLowerCase())) {
+      this.chosen.push({ name: clean, tag: matched });
       this.renderChips();
       this.options.onChange?.(this.values);
     }
@@ -212,18 +226,27 @@ export class TagInput {
   }
 
   private remove(name: string): void {
-    this.chosen = this.chosen.filter((existing) => existing !== name);
+    this.chosen = this.chosen.filter((existing) => existing.name !== name);
     this.renderChips();
     this.options.onChange?.(this.values);
   }
 
   private renderChips(): void {
     this.chipRow.replaceChildren();
-    for (const name of this.chosen) {
+    for (const entry of this.chosen) {
       const chip = el("span", { class: "chip active" });
-      chip.textContent = name;
-      const remove = el("button", { type: "button", "aria-label": `Remove ${name}` }, "×");
-      remove.addEventListener("click", () => this.remove(name));
+      // A tag picked from suggestions carries its real color/category —
+      // shown here the same way `tagColor` renders it everywhere else in
+      // the app. A brand-new name with no matching tag yet has no color to
+      // show (nothing to look up until it's actually created), so it keeps
+      // the plain accent-colored chip look instead.
+      if (entry.tag) {
+        chip.style.background = tagColor(entry.tag);
+        chip.style.borderColor = "transparent";
+      }
+      chip.append(entry.name);
+      const remove = el("button", { type: "button", "aria-label": `Remove ${entry.name}` }, "×");
+      remove.addEventListener("click", () => this.remove(entry.name));
       chip.append(remove);
       this.chipRow.append(chip);
     }
