@@ -52,6 +52,11 @@ function linkCard(link: Link, onChanged: () => void): HTMLElement {
 
   const coverInput = el("input", { type: "file", accept: "image/*" }) as HTMLInputElement;
   coverInput.hidden = true;
+  // `coverInput` lives inside `card` (below), so the synthetic click that
+  // `.click()` fires on it bubbles right back up to the card's own "open the
+  // link" listener unless stopped here -- without this, picking "Upload
+  // custom image" opened the link instead of the file picker.
+  coverInput.addEventListener("click", (event) => event.stopPropagation());
   coverInput.addEventListener(
     "change",
     guard(async () => {

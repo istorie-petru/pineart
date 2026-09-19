@@ -4,11 +4,10 @@
  * Manual boards are drag-reorderable; dynamic boards are a read-only,
  * self-updating grid. Subboard tabs filter within the board. The cover image is
  * deliberately *not* set here — the per-photo ⋮ menu handles it instead
- * (§2b's shared crop mechanism), which is explained once, briefly, in the
- * board settings drawer rather than as a permanent line on the page itself.
- * What earns a permanent spot on the page instead is a plain search box —
- * no sort/tag/color dropdown like the Feed's, just free text — for finding a
- * pin within this board (or the active subboard).
+ * (§2b's shared crop mechanism). The search bar is the same `SearchBar`
+ * component Feed/Boards use (tag/color/orientation filter dropdown, sort),
+ * scoped to this board (and its active subboard, if any) via `board`/
+ * `subboard_tag` query params rather than a separate, plainer search box.
  */
 
 import Sortable from "sortablejs";
@@ -19,10 +18,12 @@ import { Grid } from "../components/grid";
 import { openItemModal } from "../components/itemModal";
 import { pickBoard, openTagsEditorModal, promptTags } from "../components/pickers";
 import { createSelect, type CustomSelect } from "../components/select";
+import { SearchBar } from "../components/searchBar";
+import { createTagsCheckboxDropdown } from "../components/tagsCheckboxDropdown";
 import { icon } from "../icons";
 import * as router from "../router";
 import { store } from "../store";
-import type { Board, Tag } from "../types";
+import type { Board, SortKey, Tag } from "../types";
 import { appendModalCloseButton, confirmDialog, el, guard, openModal, renderErrorView, toast, toggleSwitch } from "../ui";
 
 export function renderBoardDetail(root: HTMLElement, boardId: number): () => void {
@@ -57,15 +58,6 @@ export function renderBoardDetail(root: HTMLElement, boardId: number): () => voi
 
   const subboardTabs = el("div", { class: "subboard-tabs" });
 
-  // Minimal on purpose: a plain input, no sort/tag/color dropdown like the
-  // Feed's search bar carries — this only ever needs to find a pin already
-  // known to be in this board (or the active subboard).
-  const searchRow = el("div", { class: "search-row", style: "margin: 0 0 14px;" });
-  const searchWrap = el("div", { class: "search-input-wrap" }, icon("search", true));
-  const searchInput = el("input", { type: "search", placeholder: "Search this board…" }) as HTMLInputElement;
-  searchWrap.append(searchInput);
-  searchRow.append(searchWrap);
-
   // Same bulk-select entry point and toolbar as Feed's — "Bulk select" in
   // the ⋮ menu, then a plain click on any card toggles it once at least one
   // is selected. Keeping this consistent across every grid in the app means
@@ -78,13 +70,23 @@ export function renderBoardDetail(root: HTMLElement, boardId: number): () => voi
   const bulkClear = el("button", {}, "Clear");
   bulkBar.append(bulkCount, bulkTag, bulkBoard, bulkDelete, bulkClear);
 
-  section.append(header, subboardTabs, searchRow, bulkBar);
+  let query = "";
+  let sort: SortKey = "added_at";
+  const searchBar = new SearchBar({
+    initialSort: sort,
+    onChange: (nextQuery, nextSort) => {
+      query = nextQuery;
+      sort = nextSort;
+      void grid.reload();
+    },
+  });
+
+  section.append(header, subboardTabs, searchBar.element, bulkBar);
   root.replaceChildren(section);
 
   let board: Board | null = null;
   let activeSubboard: number | null = null;
   let sortable: Sortable | null = null;
-  let query = "";
 
   const selected = new Set<number>();
   function syncBulk(): void {
@@ -116,6 +118,7 @@ export function renderBoardDetail(root: HTMLElement, boardId: number): () => voi
       api.listItems({
         board: boardId,
         q: query,
+        sort,
         cursor,
         ...(activeSubboard ? { subboard_tag: [activeSubboard] } : {}),
       }),
@@ -299,23 +302,7 @@ export function renderBoardDetail(root: HTMLElement, boardId: number): () => voi
   }
 
   settingsBtn.addEventListener("click", () => {
-    if (board) openBoardDrawer(board, refreshHeader, () => router.navigate({ view: "boards", sub: "organized" }));
-  });
-
-  let searchDebounce: number | undefined;
-  searchInput.addEventListener("input", () => {
-    window.clearTimeout(searchDebounce);
-    searchDebounce = window.setTimeout(() => {
-      query = searchInput.value.trim();
-      void grid.reload();
-    }, 250);
-  });
-  searchInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      window.clearTimeout(searchDebounce);
-      query = searchInput.value.trim();
-      void grid.reload();
-    }
+    if (board) openBoardSettingsModal(board, refreshHeader, () => router.navigate({ view: "boards", sub: "organized" }));
   });
 
   printBtn.addEventListener(
@@ -404,134 +391,115 @@ function openTagToggleModal(
   appendModalCloseButton(modal, "Close");
 }
 
-function openBoardDrawer(board: Board, onSaved: () => Promise<void>, onDeleted: () => void): void {
-  const backdrop = el("div", { class: "drawer-backdrop active" });
-  const drawer = el("div", { class: "drawer" });
-  const close = el("button", { class: "drawer-close", "aria-label": "Close" }, icon("close"));
-  const heading = el("h3");
-  heading.textContent = "Board settings";
+/**
+ * Board settings — a modal, autosaving field by field (no distinct Save
+ * button/state to lose track of), with the footer holding Delete board and
+ * Close. The cover image is deliberately not set here — see this file's own
+ * doc comment for why — so there is no line about it to explain.
+ */
+function openBoardSettingsModal(board: Board, onSaved: () => Promise<void>, onDeleted: () => void): void {
+  const modal = openModal({ className: "simple-modal-body", maxWidth: "440px", title: "Board settings" });
+  // Reassigned after every successful save so the delete confirmation below
+  // (and anything else read live rather than only at open time) reflects the
+  // latest name, not whatever it was when the modal opened.
+  let current = board;
 
   const nameLabel = el("label");
   nameLabel.textContent = "Name";
   const nameInput = el("input", { type: "text" }) as HTMLInputElement;
-  nameInput.value = board.name;
+  nameInput.value = current.name;
 
   const descLabel = el("label");
   descLabel.textContent = "Description";
   const descInput = el("textarea") as HTMLTextAreaElement;
-  descInput.value = board.description ?? "";
+  descInput.value = current.description ?? "";
 
-  const hint = el("div", { class: "drawer-hint" });
-  hint.innerHTML =
-    'Cover image is set from within the board: open any photo\'s <strong>⋮</strong> menu → "Set as this board\'s cover".';
+  // "change" (fires on blur/Enter), not "input" -- saves once a field is
+  // actually committed rather than on every keystroke, the same convention
+  // Settings' own autosaving text fields already use.
+  const saveDetails = guard(async () => {
+    const name = nameInput.value.trim();
+    if (!name) {
+      toast("A board needs a name", "error");
+      nameInput.value = current.name;
+      return;
+    }
+    current = await api.patchBoard(current.id, { name, description: descInput.value.trim() || null });
+    await onSaved();
+    toast("Saved");
+  });
+  nameInput.addEventListener("change", saveDetails);
+  descInput.addEventListener("change", saveDetails);
 
   // A saved-search board's contents are the tags it matches, not a fixed set
   // of pins — this is the same match-mode/tag-checkbox picker boardModal.ts
   // uses at creation, reused here so the query isn't locked in forever.
   let queryBlock: HTMLElement | null = null;
-  let modeSelect: CustomSelect | null = null;
-  let tagList: HTMLElement | null = null;
   if (board.is_dynamic) {
     queryBlock = el("div", { style: "margin-top:14px;" });
     const queryLabel = el("label");
     queryLabel.textContent = "Saved-search filters";
     const modeLabel = el("label", { style: "margin-top:10px;" });
     modeLabel.textContent = "Match";
-    modeSelect = createSelect(
+    const tagsLabel = el("label", { style: "margin-top:10px;" });
+    tagsLabel.textContent = "Tags";
+    const checkedIds = new Set(board.query_tags.map((t) => t.id));
+    const tagsDropdown = createTagsCheckboxDropdown(
+      store.tags.map((tag) => ({ id: tag.id, name: tag.name })),
+      [...checkedIds],
+      () => void saveQuery(),
+      { emptyMessage: "No tags exist yet." },
+    );
+
+    const saveQuery = guard(async () => {
+      const tagIds = tagsDropdown.getValues();
+      if (!tagIds.length) {
+        toast("Pick at least one tag — a saved-search board with no tags matches nothing", "error");
+        return;
+      }
+      const matchMode = modeSelect.getValue() as "all" | "any";
+      current = await api.patchBoard(current.id, {
+        query_tags: tagIds.map((id) => ({ tag_id: id, match_mode: matchMode })),
+      });
+      await onSaved();
+      toast("Saved");
+    });
+
+    const modeSelect: CustomSelect = createSelect(
       [
         { value: "any", label: "Any of these tags (OR)" },
         { value: "all", label: "All of these tags (AND)" },
       ],
       board.match_mode,
-      undefined,
+      () => void saveQuery(),
       { ariaLabel: "Match" },
     );
-    const tagsLabel = el("label", { style: "margin-top:10px;" });
-    tagsLabel.textContent = "Tags";
-    tagList = el("div", { class: "checkbox-list" });
-    queryBlock.append(queryLabel, modeLabel, modeSelect.element, tagsLabel, tagList);
+    queryBlock.append(queryLabel, modeLabel, modeSelect.element, tagsLabel, tagsDropdown.element);
 
-    const checkedIds = new Set(board.query_tags.map((t) => t.id));
     void store.loadTags().then(() => {
-      tagList!.replaceChildren();
-      if (!store.tags.length) {
-        const empty = el("p", { class: "hint" });
-        empty.textContent = "No tags exist yet.";
-        tagList!.append(empty);
-        return;
-      }
-      for (const tag of store.tags) {
-        const label = el("label");
-        const checkbox = el("input", { type: "checkbox", value: String(tag.id) }) as HTMLInputElement;
-        checkbox.checked = checkedIds.has(tag.id);
-        label.append(checkbox, document.createTextNode(tag.name));
-        tagList!.append(label);
-      }
+      tagsDropdown.setItems(store.tags.map((tag) => ({ id: tag.id, name: tag.name })));
     });
   }
 
-  const save = el("button", {
-    class: "btn btn-filled",
-    style: "margin-top:18px; width:100%; justify-content:center;",
-  });
-  save.textContent = "Save";
+  modal.body.append(nameLabel, nameInput, descLabel, descInput);
+  if (queryBlock) modal.body.append(queryBlock);
 
-  const remove = el("button", {
-    class: "btn btn-error-tonal",
-    style: "margin-top:10px; width:100%; justify-content:center;",
-  });
-  remove.textContent = "Delete board";
-
-  drawer.append(close, heading, nameLabel, nameInput, descLabel, descInput, hint);
-  if (queryBlock) drawer.append(queryBlock);
-  drawer.append(save, remove);
-  backdrop.append(drawer);
-  document.body.append(backdrop);
-
-  const dismiss = () => backdrop.remove();
-  close.addEventListener("click", dismiss);
-  backdrop.addEventListener("click", (event) => {
-    if (event.target === backdrop) dismiss();
-  });
-
-  save.addEventListener(
-    "click",
-    guard(async () => {
-      const patch: Parameters<typeof api.patchBoard>[1] = {
-        name: nameInput.value.trim(),
-        description: descInput.value.trim() || null,
-      };
-      if (board.is_dynamic && modeSelect && tagList) {
-        const matchMode = modeSelect.getValue() as "all" | "any";
-        const tagIds = Array.from(
-          tagList.querySelectorAll<HTMLInputElement>("input:checked"),
-          (input) => Number(input.value),
-        );
-        if (!tagIds.length) {
-          toast("Pick at least one tag — a saved-search board with no tags matches nothing", "error");
-          return;
-        }
-        patch.query_tags = tagIds.map((id) => ({ tag_id: id, match_mode: matchMode }));
-      }
-      await api.patchBoard(board.id, patch);
-      dismiss();
-      await onSaved();
-      toast("Board updated");
-    }),
-  );
-
-  remove.addEventListener(
+  const deleteBtn = el("button", { class: "delete-link", type: "button" });
+  deleteBtn.textContent = "Delete board";
+  deleteBtn.addEventListener(
     "click",
     guard(async () => {
       const confirmed = await confirmDialog(
-        `Delete the board "${board.name}"? The images in it are not deleted — only the board.`,
+        `Delete the board "${current.name}"? The images in it are not deleted — only the board.`,
         "Delete board",
       );
       if (!confirmed) return;
-      await api.deleteBoard(board.id);
-      dismiss();
+      await api.deleteBoard(current.id);
+      modal.close();
       onDeleted();
       toast("Board deleted");
     }),
   );
+  modal.footer.append(deleteBtn);
+  appendModalCloseButton(modal, "Close");
 }

@@ -3,6 +3,7 @@
 import { api } from "../api";
 import { store } from "../store";
 import { createSelect } from "./select";
+import { createTagsCheckboxDropdown } from "./tagsCheckboxDropdown";
 import { appendModalActions, el, guardForm, openModal, toast, toggleSwitch } from "../ui";
 
 export function openBoardCreateModal(onCreated: () => void): void {
@@ -46,8 +47,13 @@ export function openBoardCreateModal(onCreated: () => void): void {
   );
   const tagsLabel = el("label");
   tagsLabel.textContent = "Tags";
-  const tagList = el("div", { class: "checkbox-list" });
-  queryBlock.append(modeLabel, modeSelect.element, tagsLabel, tagList);
+  const tagsDropdown = createTagsCheckboxDropdown(
+    store.tags.map((tag) => ({ id: tag.id, name: tag.name })),
+    [],
+    undefined,
+    { emptyMessage: "No tags exist yet, so a saved-search board would be empty." },
+  );
+  queryBlock.append(modeLabel, modeSelect.element, tagsLabel, tagsDropdown.element);
 
   dynamicToggle.addEventListener("change", () => {
     queryBlock.hidden = !dynamicToggle.checked;
@@ -61,18 +67,7 @@ export function openBoardCreateModal(onCreated: () => void): void {
   nameInput.focus();
 
   void store.loadTags().then(() => {
-    if (!store.tags.length) {
-      const empty = el("p", { class: "hint" });
-      empty.textContent = "No tags exist yet, so a saved-search board would be empty.";
-      tagList.append(empty);
-      return;
-    }
-    for (const tag of store.tags) {
-      const label = el("label");
-      const checkbox = el("input", { type: "checkbox", value: String(tag.id) }) as HTMLInputElement;
-      label.append(checkbox, document.createTextNode(tag.name));
-      tagList.append(label);
-    }
+    tagsDropdown.setItems(store.tags.map((tag) => ({ id: tag.id, name: tag.name })));
   });
 
   create.addEventListener(
@@ -84,10 +79,7 @@ export function openBoardCreateModal(onCreated: () => void): void {
         return;
       }
       const isDynamic = dynamicToggle.checked;
-      const tagIds = Array.from(
-        tagList.querySelectorAll<HTMLInputElement>("input:checked"),
-        (input) => Number(input.value),
-      );
+      const tagIds = tagsDropdown.getValues();
       if (isDynamic && !tagIds.length) {
         toast("Pick at least one tag — a saved-search board with no tags matches nothing", "error");
         return;

@@ -237,4 +237,22 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Tab") closeActionMenu();
 });
 
-document.addEventListener("scroll", () => closeActionMenu(), true);
+// `scroll` doesn't bubble, but a capture-phase listener on `document` still
+// fires for one targeted at a descendant (tagsCheckboxDropdown.ts's
+// `.action-menu-checkbox-list`, the only scrollable content a panel has
+// today) -- without excluding that case, scrolling *inside* the panel closed
+// it out from under the gesture instead of just scrolling its own content,
+// letting the same wheel/touch movement fall through to whatever is
+// underneath. Only a scroll of the page (or some other ancestor) behind the
+// fixed-position panel actually needs to close it.
+document.addEventListener(
+  "scroll",
+  (event) => {
+    // A window-level scroll's target is `document` (a Node), but `event.target`
+    // is typed as `EventTarget` in general -- guard the type before calling a
+    // Node-only method rather than assuming every scroll target qualifies.
+    if (event.target instanceof Node && activeMenu?.panel.contains(event.target)) return;
+    closeActionMenu();
+  },
+  true,
+);

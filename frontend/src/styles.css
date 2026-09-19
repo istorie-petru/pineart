@@ -583,6 +583,15 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
   background: color-mix(in srgb, var(--color-accent) 18%, transparent);
 }
 
+/* Checkbox row inside a portaled dropdown panel (tagsCheckboxDropdown.ts,
+   the saved-search board Tags picker) -- an `.action-menu-item` is a
+   <button>/<a> everywhere else; here it's a <label> wrapping a real
+   checkbox instead, since picking several tags must not close the panel
+   the way clicking a button item does everywhere else in actionMenu.ts. */
+.action-menu-checkbox { cursor: pointer; white-space: normal; }
+.action-menu-checkbox input[type="checkbox"] { flex-shrink: 0; margin: 0; }
+.action-menu-checkbox-list { max-height: 200px; overflow-y: auto; }
+
 /* Pineart-only extension (not part of Curodav's own component, kept
    deliberately -- see actionMenu.ts's module doc comment): groups
    consecutive icon-only entries (ActionMenuItem.iconRow) into one
@@ -901,22 +910,6 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
    and absolutely positioned siblings have no flow order to reorder. */
 .masonry.dragging { display: flex; flex-wrap: wrap; gap: var(--gutter); height: auto !important; }
 .masonry.dragging .card { position: relative; left: auto !important; top: auto !important; }
-
-/* ---------- drawer ---------- */
-.drawer-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); display: none; z-index: 110; }
-.drawer-backdrop.active { display: block; }
-.drawer {
-  position: fixed; top: 0; right: -360px; width: 340px; height: 100%; background: var(--color-bg);
-  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.2); padding: 20px; overflow-y: auto;
-  transition: right var(--transition-fast);
-}
-.drawer-backdrop.active .drawer { right: 0; }
-.drawer h3 { margin: 0 0 16px; font-size: 15px; }
-.drawer label { display: block; font-size: 12px; color: var(--color-text-muted); margin: 14px 0 5px; }
-.drawer input[type="text"], .drawer textarea { width: 100%; }
-.drawer textarea { resize: vertical; min-height: 60px; }
-.drawer-close { position: absolute; top: 16px; right: 16px; background: none; border: none; cursor: pointer; color: var(--color-text-muted); }
-.drawer-hint { font-size: 12px; color: var(--color-text-muted); margin-top: 14px; padding: 10px 12px; background: var(--color-surface); border-radius: 8px; }
 
 /* ---------- tag graph ---------- */
 #tagGraph {
@@ -1397,7 +1390,6 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
   .modal-header { padding-top: 24px; }
 
   .board-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
-  .drawer { width: 100%; right: -100%; }
 
   /* Icon-only controls need a real fingertip target on touch even where the
      visual glyph stays small — 44pt (iOS)/48dp (Material) is the commonly
