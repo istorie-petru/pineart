@@ -140,7 +140,7 @@ function buildVersions(item: Item, onChanged: (updated: Item) => void, onCropNew
   const plusBtn = el(
     "button",
     { class: "icon-btn", title: "Crop or resize a copy of the main image", "aria-label": "Crop or resize a copy of the main image" },
-    icon("plus", true),
+    icon("crop", true),
   );
   plusBtn.addEventListener("click", () => onCropNew());
   // The file-picker path — an actual different file (a rescan, a higher-res
@@ -307,13 +307,23 @@ export function openItemModal(item: Item, options: ItemModalOptions): void {
   modal.backdrop.classList.add("item-modal-backdrop");
   const imgPane = el("div", { class: "img-pane" });
   const infoPane = el("div", { class: "info-pane" });
+  // `imgPane` and `rightCol` are the two even halves of the top row; `footer`
+  // is a real `.modal-footer` -- the same shared footer every other modal in
+  // the app uses -- spanning both of them at the bottom, not nested inside
+  // the info column, so Add to board / Download / Move to trash read as the
+  // modal's own footer rather than the info pane's.
+  const rightCol = el("div", { class: "item-modal-right" });
+  rightCol.append(infoPane);
+  const contentRow = el("div", { class: "item-modal-content" });
+  contentRow.append(imgPane, rightCol);
+  const footer = el("div", { class: "modal-footer" });
   // Removes the whole header/body/footer wrapper, not just `body` -- an
   // empty wrapper left attached would still take up a flex slot in
-  // `.modal`'s row layout, squeezing imgPane/infoPane unexpectedly (see
+  // `.modal`'s column layout, squeezing contentRow/footer unexpectedly (see
   // ModalHandle's own doc comment in ui.ts).
   modal.content.remove();
   modal.backdrop.querySelector(".modal")?.classList.add("item-modal");
-  modal.backdrop.querySelector(".modal")?.append(imgPane, infoPane);
+  modal.backdrop.querySelector(".modal")?.append(contentRow, footer);
 
   function onKey(event: KeyboardEvent): void {
     // Arrow keys move between images only when the user is not typing —
@@ -419,41 +429,25 @@ export function openItemModal(item: Item, options: ItemModalOptions): void {
     const tagRow = el("div");
     renderTags(tagRow, next);
 
-    const actions = el("div", { class: "actions" });
-
-    // Add to board is the one colored/filled action here — it's the thing you
-    // actually come to this row to *do*. Download and Move to trash are
-    // simple icon-only buttons instead of matching pills: two same-weight
-    // colored buttons next to the real action buried the one that mattered.
+    // Same left/spacer/secondary/primary shape `appendModalActions` gives
+    // every other modal's footer, but the far-left action stays borderless
+    // (`.icon-btn`, not `.btn-outlined`) — a demoted `.delete-link` next to
+    // the one colored/filled action on the right is the only other weight
+    // in this row.
     const download = el(
       "a",
-      { class: "icon-btn", href: next.urls.download, download: "", title: "Download", "aria-label": "Download" },
-      icon("download", true),
-    );
-
-    // Citation export (advance.md §10) — a structured, copy-pasteable
-    // reference (title, artist tag, added date, source URL) rather than a
-    // full BibTeX implementation, which is what turns the collection into
-    // something usable as an actual research tool rather than only a visual
-    // archive.
-    const citationBtn = el(
-      "button",
-      { class: "icon-btn", type: "button", title: "Copy citation", "aria-label": "Copy citation" },
-      icon("quote", true),
-    );
-    citationBtn.addEventListener(
-      "click",
-      guard(async () => {
-        const citation = await api.itemCitation(next.id);
-        try {
-          await navigator.clipboard.writeText(citation.text);
-          toast("Citation copied to clipboard");
-        } catch {
-          // Clipboard access can be denied (permissions, insecure context);
-          // showing the text directly is the fallback rather than a silent no-op.
-          window.prompt("Copy this citation:", citation.text);
-        }
-      }),
+      {
+        class: "icon-btn",
+        href: next.urls.download,
+        download: "",
+        title: "Download",
+        // `.icon-btn` is only ever icon-only elsewhere, so it never had to set
+        // font-size or strip the anchor's default underline — both of which
+        // `.btn` (see its own doc comment) already accounts for, but this
+        // button deliberately isn't a `.btn` since it should stay borderless.
+        style: "gap:6px; padding:9px 14px; border-radius:20px; font-size:13px; text-decoration:none;",
+      },
+      `${icon("download", true)} Download`,
     );
 
     // Cropping/resizing now starts from the "+" in the Versions section
@@ -486,11 +480,8 @@ export function openItemModal(item: Item, options: ItemModalOptions): void {
       }),
     );
 
-    const remove = el(
-      "button",
-      { class: "icon-btn danger", title: "Move to trash", "aria-label": "Move to trash" },
-      icon("trash", true),
-    );
+    const remove = el("button", { class: "delete-link", type: "button" });
+    remove.textContent = "Delete";
     remove.addEventListener(
       "click",
       guard(async () => {
@@ -508,7 +499,7 @@ export function openItemModal(item: Item, options: ItemModalOptions): void {
       }),
     );
 
-    actions.append(addToBoard, download, citationBtn, remove);
+    footer.replaceChildren(download, el("div", { class: "spacer" }), remove, addToBoard);
 
     const versionBlock = buildVersions(
       next,
@@ -525,9 +516,7 @@ export function openItemModal(item: Item, options: ItemModalOptions): void {
     recLabel.textContent = "More like this";
     const recStrip = el("div", { class: "rec-strip" });
 
-    // Actions sit last, at the bottom of the pane's content, rather than
-    // wedged between the metadata and the versions/recommendations below it.
-    infoPane.replaceChildren(heading, meta, description, tagRow, versionBlock, recLabel, recStrip, actions);
+    infoPane.replaceChildren(heading, meta, description, tagRow, versionBlock, recLabel, recStrip);
 
     api
       .recommendations(next.id)
