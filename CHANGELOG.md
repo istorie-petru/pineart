@@ -7,6 +7,32 @@ faith (see `advance.md` §3). Format loosely follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-20
+
+### Added
+- A dedicated Links page (`#/links`), replacing the pill row that used to
+  live under the Boards profile header: a grouped grid of status-cards
+  (preview image, icon, title, and a kebab menu for uploading a custom image
+  or editing details), with each link's group shown both as a section header
+  and as a label under its card.
+- Links auto-fetch a preview image from their own URL's
+  `og:image`/`twitter:image` on creation (and on a later URL edit, if none
+  was ever set) — the same "unfurl" a chat app does when you paste a link.
+  Best-effort and silent: a slow or broken site never blocks creating the
+  link, and a manually uploaded cover always wins over an auto-fetched one.
+
+### Changed
+- Redesigned the item modal's footer to match every other modal's own
+  action-row shape (spacer-separated secondary/primary actions) and dropped
+  the citation-copy button from it.
+
+### Internal
+- `Link.category` renamed to `Link.group_name` (it was never surfaced in the
+  UI under its old name).
+- The SSRF guard Discover's `/api/discover/save` already used for
+  server-side URL fetches is now shared (`services/net.py`) with the new
+  link-preview fetch.
+
 ## [1.0.0] - 2026-09-19
 
 ### Changed
