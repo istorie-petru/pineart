@@ -10,12 +10,47 @@
   --color-text-muted: #7a746c;
   --color-accent: #e63946;
   --color-border: #e6e2da;
+  /* Functional colors (design-system unification pass, 2026-09-17, shared
+     spec at /home/peter/Claude/Projects/DESIGN_SYSTEM.md) -- same
+     vocabulary as sibling app Curodav's --danger/--success/--warning/
+     --info, values tokenized from what this app already used as literals
+     (color-danger from the existing #b3212e/#ff8a93 error red, color-
+     success from the existing status-dot green) or newly chosen to fit
+     this app's warm palette (warning/info). */
+  --color-danger: #b3212e;
+  --color-success: #2ecc71;
+  --color-warning: #d97706;
+  --color-info: #457b9d;
+  /* Type scale -- same 8 steps/values as Curodav's own (this app had no
+     scale at all before, just ad hoc pixel values scattered through the
+     file below; new component work should reach for these instead). */
+  --text-xs: 13px; --text-sm: 14px; --text-base: 15px; --text-md: 15.5px;
+  --text-lg: 17px; --text-xl: 18px; --text-2xl: 21px; --text-3xl: 26px;
+  /* Spacing scale -- same 4px grid/values as Curodav's own. */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-7: 28px; --space-8: 32px;
+  --space-9: 36px; --space-10: 40px; --space-11: 44px; --space-12: 48px;
   --radius-card: 16px;
   --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-pill: 999px;
   --gutter: 14px;
+  /* Portaled dropdown/popover panels that escape modal/overflow clipping
+     (.action-menu-panel, .filter-dropdown) -- same value the old .kebab-menu
+     already used inline, kept as the one shared token (design-system
+     unification pass, 2026-09-18). */
+  --z-overlay-panel: 300;
   --transition-fast: 180ms cubic-bezier(0.22, 1, 0.36, 1);
-  --shadow-rest: 0 1px 3px rgba(50, 35, 20, 0.06);
-  --shadow-hover: 0 10px 26px rgba(50, 35, 20, 0.16);
+  /* Elevation -- same 5-level vocabulary as Curodav's own --elevation-0..4
+     (replaces the old --shadow-rest/--shadow-hover pair), keeping this
+     app's own warm-brown shadow tint (rgba(50,35,20,...)) rather than
+     Curodav's neutral black -- same levels/progression shape, different
+     tint per app, per the shared spec. */
+  --elevation-0: none;
+  --elevation-1: 0 1px 3px rgba(50, 35, 20, 0.06);
+  --elevation-2: 0 4px 10px rgba(50, 35, 20, 0.1);
+  --elevation-3: 0 10px 26px rgba(50, 35, 20, 0.16);
+  --elevation-4: 0 20px 60px rgba(50, 35, 20, 0.4);
   /* Tells the browser which palette to render its own native chrome in —
      checkbox/radio ticks, number-input spinners, date/color pickers,
      scrollbars — for whatever it doesn't hand off to custom CSS. Without
@@ -34,13 +69,29 @@
   --color-text: #f0ede6;
   --color-text-muted: #a49c8e;
   --color-border: #322c22;
+  --color-danger: #ff8a93;
   color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
 
+/* The browser's own `[hidden] { display: none }` rule is user-agent-origin,
+   which loses to ANY same-element author rule that sets `display` — e.g.
+   `.btn { display: inline-flex }` on Grid's "Load more" button, or
+   `.icon-btn { display: inline-flex }` on `#settingsBtn` — regardless of
+   selector specificity, because origin precedence is checked before
+   specificity in the cascade. Without this, `element.hidden = true` silently
+   no-ops on anything already styled with an author `display` rule (the
+   "Load more" button stayed visible on an exhausted trash grid because of
+   exactly this). `!important` is what actually wins that fight. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
+  /* Reserves the fixed sidebar's own width so content isn't drawn under it;
+     zeroed out below 640px where the sidebar is hidden in favour of the
+     bottom tab bar. */
+  padding-left: 72px;
   font-family: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   background: var(--color-bg);
   color: var(--color-text);
@@ -53,31 +104,68 @@ button, input, select, textarea { font-family: inherit; }
 
 :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 
-/* ---------- top navigation ---------- */
-header.topnav {
-  display: flex; align-items: center; gap: 18px; padding: 12px 20px;
-  border-bottom: 1px solid var(--color-border); position: sticky; top: 0;
-  background: var(--color-bg); z-index: 50;
+/* ---------- sidebar navigation ----------
+   Icon-only left rail, replacing the old horizontal topnav (2026-09-19,
+   direct request to match a Pinterest-style icon sidebar). Fixed full-height
+   so it never scrolls with the content; `main`'s left padding below reserves
+   the matching gutter. */
+.sidebar {
+  /* 14px, not the original 6px (2026-09-19: "the spacing between icons
+     should be bigger") -- also spaces the Add images/Settings icons below
+     the spacer to match the gap `nav.views` now uses between its own
+     buttons. */
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  position: fixed; top: 0; left: 0; bottom: 0; width: 72px; padding: 14px 0;
+  border-right: 1px solid var(--color-border); background: var(--color-bg); z-index: 50;
 }
-.logo { font-weight: 700; font-size: 17px; letter-spacing: -0.02em; margin-right: 8px; }
-nav.views { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+/* The favicon logo that used to sit here (public/favicon.png) was removed
+   2026-09-19 on direct feedback ("i don't like it") -- the rail now opens
+   straight into the nav items, with `.sidebar`'s own top padding as the only
+   spacing above the first one. */
+nav.views {
+  display: flex; flex-direction: column; align-items: center;
+  /* Wider than the original 4px (2026-09-19: "the spacing between icons
+     should be bigger") -- distinct gaps between Feed/Boards/Discover rather
+     than a nearly-touching stack. */
+  gap: 14px;
+}
+/* Squircle, not a full circle (2026-09-19 direct feedback), for both the
+   hover and `.active` backgrounds -- one shared `border-radius` on the base
+   rule covers both states since neither overrides it. 10px padding + the
+   22px icon below = 42px, matching `.sidebar .icon-btn` exactly (2026-09-19:
+   "make them all 42px"). */
 nav.views button {
-  background: none; border: none; padding: 8px 12px; border-radius: 20px;
-  font-size: 13.5px; color: var(--color-text-muted); cursor: pointer;
+  background: none; border: none; padding: 10px; border-radius: 30%; cursor: pointer;
+  color: var(--color-text-muted); display: inline-flex; align-items: center; justify-content: center;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 nav.views button:hover { background: var(--color-surface); color: var(--color-text); }
 nav.views button.active { background: var(--color-text); color: var(--color-bg); }
-nav.views button.icon-nav-btn { padding: 9px; border-radius: 50%; display: inline-flex; }
-.nav-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+/* Pushes the add-images/settings icons (markup order: logo, nav, spacer,
+   icons) down to the bottom of the rail, same placement as Pinterest's own
+   settings entry. */
+.sidebar-spacer { flex: 1; }
+/* Bigger and thicker-stroked than `.micon svg`'s app-wide 20px/1.8 default
+   (2026-09-19 direct feedback: "icons in the sidebar to be more thick" /
+   "too small") -- scoped to the sidebar rather than raised globally, since
+   every other icon in the app (menus, cards, modals) was left exactly as
+   designed. */
+.sidebar .micon svg { width: 22px; height: 22px; stroke-width: 2.5; }
+/* Same squircle treatment as `nav.views button` above, scoped to the
+   sidebar's own two icon-btns (Add images, Settings) so every hover shape in
+   the rail reads as one consistent language -- `.icon-btn` itself is shared
+   with unrelated circular buttons elsewhere (item modal, board header, tag
+   graph) that were never part of this request and keep their circle. Padding
+   bumped from the shared `.icon-btn`'s 9px to 10px so this box also lands on
+   42px (10 + 22 + 10), matching the nav buttons and the logo above. */
+.sidebar .icon-btn { border-radius: 30%; padding: 10px; }
 .icon-btn {
   background: none; border: none; padding: 9px; border-radius: 50%; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
   color: var(--color-text-muted); transition: background var(--transition-fast), color var(--transition-fast);
 }
 .icon-btn:hover { background: var(--color-surface); color: var(--color-text); }
-.icon-btn.danger:hover { background: color-mix(in srgb, #e63946 16%, var(--color-surface)); color: #b3212e; }
-[data-theme="dark"] .icon-btn.danger:hover { color: #ff8a93; }
+.icon-btn.danger:hover { background: color-mix(in srgb, var(--color-danger) 16%, var(--color-surface)); color: var(--color-danger); }
 
 /* Every text-like input, by type rather than by class — a new form anywhere
    in the app should not have to remember to opt an input into this, it
@@ -92,10 +180,82 @@ input[type="password"],
 input[type="email"],
 select,
 textarea {
-  background: var(--color-surface); border: 1px solid var(--color-border);
-  color: var(--color-text); border-radius: var(--radius-sm); padding: 7px 10px; font-size: 13px;
+  /* 2026-09-18 (direct report: "I would like the input boxes in pineart to
+     be like the ones in curodav") -- these were noticeably smaller/tighter/
+     lower-contrast than Curodav's own base input rule (webapp/src/static/
+     style.css): --color-surface (a token shared with lots of other UI, not
+     a dedicated "this is a control" surface) at radius-sm/8px, a 1px border,
+     7px/10px padding, and a flat 13px font. Curodav's own input/select/
+     textarea rule uses --control-bg (a distinctly elevated surface),
+     radius-control/12px, a 1.5px border, 10px/14px padding, and --text-md
+     (15.5px) -- matched here token-for-token where Pineart already has an
+     equivalent (--color-bg plays --control-bg's role: it's already used the
+     same way for portaled panels like .action-menu-panel).
+  */
+  background: var(--color-bg); border: 1.5px solid var(--color-border);
+  color: var(--color-text); border-radius: var(--radius-md); padding: 10px 14px; font-size: var(--text-md);
 }
 input::placeholder, textarea::placeholder { color: var(--color-text-muted); opacity: 1; }
+input[type="search"]:focus,
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="url"]:focus,
+input[type="password"]:focus,
+input[type="email"]:focus,
+select:focus,
+textarea:focus {
+  /* Curodav's own focus state is a border-color change plus a soft
+     accent-tinted glow ring (box-shadow), not the harder 2px offset outline
+     the rest of this app uses for :focus-visible (still correct for
+     buttons/links) -- ported the same visual effect here, using
+     color-mix() against this app's own --color-accent rather than
+     introducing Curodav's separate neutral-focus token, which has no
+     equivalent here and isn't otherwise used by this app's own focus
+     convention. */
+  outline: none; border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+/* Same custom chevron treatment as Curodav's own `select` rule, replacing
+   the browser's native dropdown arrow (which otherwise looks visually
+   unrelated to every other control here). */
+select {
+  appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 30px;
+  background-repeat: no-repeat; background-position: right 10px center; background-size: 9px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237a746c'/%3E%3C/svg%3E");
+}
+
+/* Custom <select> replacement (components/select.ts, 2026-09-18) -- a
+   <button>, not a <select>, so it needs its own copy of the base
+   input/select rule's visual language (same border/radius/padding/font as
+   every other field) rather than inheriting it. */
+.custom-select {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  width: 100%; font-family: inherit; text-align: left; cursor: pointer;
+  background: var(--color-bg); border: 1.5px solid var(--color-border); color: var(--color-text);
+  border-radius: var(--radius-md); padding: 10px 14px; font-size: var(--text-md);
+}
+.custom-select:hover { border-color: var(--color-text-muted); }
+.custom-select:focus-visible, .custom-select[aria-expanded="true"] {
+  outline: none; border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+.custom-select-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.custom-select-chevron {
+  flex-shrink: 0; width: 9px; height: 6px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237a746c'/%3E%3C/svg%3E") no-repeat center / contain;
+}
+
+/* Inline field-level validation (design-system unification pass,
+   2026-09-17, shared spec at /home/peter/Claude/Projects/DESIGN_SYSTEM.md)
+   -- ui.ts's applyFieldErrors marks the input a 422 actually named,
+   instead of only ever showing a toast with no way to tell which field on
+   a modal form is wrong. No `.field` wrapper class exists in this app's
+   hand-built modals (label and input are plain siblings) — the input
+   itself carries `.has-error`, and the message renders as its next
+   sibling, same shared CSS variable names as sibling app Curodav's own
+   `.field.has-error`/`.field-error`. */
+input.has-error, select.has-error, textarea.has-error, .custom-select.has-error { border-color: var(--color-danger); }
+.field-error { display: block; font-size: var(--text-xs); color: var(--color-danger); margin-top: 2px; }
 
 /* Strips the native up/down spinner — its own corner radius, its own white,
    its own everything never matched the boxed-surface treatment above it,
@@ -133,21 +293,82 @@ input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
   outline: 2px solid var(--color-accent); outline-offset: 2px;
 }
 
+/* Toggle switch (2026-09-18, direct request: boolean settings should look
+   like Curodav's slide toggle, not a plain checkbox) -- ported from
+   Curodav's own .switch (style.css, MD3-style track+thumb), same geometry
+   (38x22 track, 16px thumb, 3px inset, pill radius, translateX(16px) on).
+   One deliberate token difference: Curodav's checked state uses its own
+   neutral-gray --accent-neutral (a separate "focus/neutral" concept this
+   app doesn't have); this app's own checkboxes/focus rings already fill
+   solid with --color-accent on checked, so the switch matches THAT
+   existing convention instead of introducing a new neutral-accent concept
+   for one component. Markup: <label class="switch"><input
+   type="checkbox">...<span class="slider"></span></label> -- see ui.ts's
+   toggleSwitch() helper. */
+.switch { position: relative; display: inline-block; width: 38px; height: 22px; flex: none; vertical-align: middle; }
+.switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.switch .slider {
+  position: absolute; inset: 0; cursor: pointer; border-radius: var(--radius-pill);
+  background: var(--color-border); transition: background var(--transition-fast);
+}
+.switch .slider::before {
+  content: ""; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px;
+  border-radius: 50%; background: #fff; transition: transform var(--transition-fast), background var(--transition-fast);
+}
+.switch input:checked + .slider { background: var(--color-accent); }
+.switch input:checked + .slider::before { transform: translateX(16px); }
+.switch input:focus-visible + .slider {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+.switch input:disabled + .slider { opacity: 0.5; cursor: not-allowed; }
+
 input[type="color"] {
   width: 30px; height: 30px; border: none; border-radius: 50%;
   overflow: hidden; padding: 0; cursor: pointer;
 }
-.accent-swatch-btn {
-  width: 26px; height: 26px; border-radius: 50%;
-  box-shadow: inset 0 0 0 1.5px rgba(0, 0, 0, 0.15);
-  cursor: pointer; position: relative; overflow: hidden; flex-shrink: 0;
+/* Tag/category color picker (components/colorPicker.ts, design-system
+   unification pass 2026-09-18) -- replaces the free `<input type="color">`
+   above at its two remaining call sites (categoryModal.ts, settings.ts's
+   tag editor) with a portaled grid of TAG_PALETTE's 16 swatches, the same
+   16-color identity set ported from Curodav's own palette in an earlier
+   pass. The trigger keeps the same 30px circle-of-current-color look
+   `input[type="color"]` had; only the picker UI opened on click changes. */
+/* Same shape as `.icon-swatch-trigger` below (rounded square, not a circle)
+   -- direct feedback, 2026-09-19: "both should have the same design" (the
+   color and icon pickers sit next to each other in the tag editor, and a
+   circle next to a rounded square read as visually inconsistent). */
+.color-swatch-trigger {
+  width: 30px; height: 30px; border-radius: var(--radius-sm); border: 1.5px solid var(--color-border);
+  padding: 0; cursor: pointer; transition: border-color var(--transition-fast);
 }
-.accent-swatch-btn input[type="color"] {
-  position: absolute; inset: -4px; width: calc(100% + 8px); height: calc(100% + 8px);
-  opacity: 0; cursor: pointer; border: none; padding: 0;
+.color-swatch-trigger:hover, .color-swatch-trigger[aria-expanded="true"] { border-color: var(--color-text-muted); }
+.color-swatch-trigger:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.color-swatch-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-1); padding: var(--space-1); }
+.color-swatch-option {
+  width: 32px; height: 32px; padding: 0; border-radius: 8px;
+  border: 2px solid transparent; cursor: pointer;
+  transition: transform var(--transition-fast), border-color var(--transition-fast);
 }
+.color-swatch-option:hover { transform: scale(1.1); }
+.color-swatch-option:focus-visible { outline: none; border-color: var(--color-text); }
+.color-swatch-option.selected { border-color: var(--color-text); }
+/* `.accent-swatch-picker` (the old always-visible inline row for the
+   Settings > Appearance accent-color picker) retired 2026-09-19 -- that
+   picker now uses `.color-swatch-trigger`/`.color-swatch-grid` above via
+   `createColorPicker`, the same dropdown every other single-value color
+   picker in the app uses. `.swatch`/`.swatch.active` stays -- still used by
+   `searchBar.ts`'s own color filter chips (a multi-select filter, a
+   deliberately different pattern, kept inline). */
 
-main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+/* No max-width/centering here (2026-09-19, direct feedback: "I don't
+   understand why we would need max width for the feed or any other page") --
+   the masonry grid (masonry.ts) already derives its own column count from
+   its container's actual width with no breakpoint table, so it was never
+   needed to keep that grid readable; it only clipped every view to a fixed
+   1400px on wider screens for no benefit. Settings caps its own content
+   width instead (`.settings-shell`), since a form-style panel narrower than
+   most viewports needs that cap regardless of how wide `main` is. */
+main { padding: 20px; }
 section.view { display: none; }
 section.view.active { display: block; animation: view-in 220ms ease-out; }
 .subview { display: none; }
@@ -165,13 +386,13 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 /* ---------- profile header ---------- */
 .profile-header { text-align: center; margin-bottom: 20px; }
 .profile-banner {
-  height: 180px; border-radius: var(--radius-card); box-shadow: var(--shadow-rest);
+  height: 180px; border-radius: var(--radius-card); box-shadow: var(--elevation-1);
   background-size: cover; background-position: center;
 }
 .profile-avatar-wrap { margin-top: -48px; display: flex; justify-content: center; }
 .profile-avatar {
   width: 96px; height: 96px; border-radius: 50%; border: 4px solid var(--color-bg);
-  box-shadow: var(--shadow-hover); background-size: cover; background-position: center;
+  box-shadow: var(--elevation-3); background-size: cover; background-position: center;
 }
 .profile-name { margin: 12px 0 3px; font-size: 19px; }
 .profile-desc {
@@ -179,7 +400,7 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 }
 .profile-links { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .link-pill {
-  display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius-pill);
   background: var(--color-surface); font-size: 12.5px; cursor: pointer;
   border: 1px solid var(--color-border); transition: var(--transition-fast);
   text-decoration: none; color: var(--color-text);
@@ -191,14 +412,14 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 
 /* ---------- controls ---------- */
 .segmented {
-  display: inline-flex; background: var(--color-surface); border-radius: 999px;
+  display: inline-flex; background: var(--color-surface); border-radius: var(--radius-pill);
   padding: 3px; margin-bottom: 18px; gap: 2px;
 }
 .segmented button {
-  border: none; background: transparent; padding: 7px 16px; border-radius: 999px;
+  border: none; background: transparent; padding: 7px 16px; border-radius: var(--radius-pill);
   font-size: 13px; cursor: pointer; color: var(--color-text-muted); transition: var(--transition-fast);
 }
-.segmented button.active { background: var(--color-bg); color: var(--color-text); box-shadow: var(--shadow-rest); }
+.segmented button.active { background: var(--color-bg); color: var(--color-text); box-shadow: var(--elevation-1); }
 
 .search-filter-container { position: relative; }
 .chip {
@@ -209,16 +430,25 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 .chip.active { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
 .filterbar { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
 .search-row { display: flex; gap: 10px; }
+/* `.custom-select`'s own base rule sets `width: 100%`, meant for a form field
+   that's the only control in its row (Settings' `.field-row`/`.field-col`
+   context, where it reads compact because the row itself is narrow). Here,
+   with nothing else constraining it, that 100% resolved against the whole
+   filter bar and let the sort dropdown balloon past 800px on a wide screen
+   while the actual search input was squeezed to ~200px -- direct feedback,
+   2026-09-19: shrink the sort control back to a fixed, Settings-like size and
+   let the search input's own `flex: 1` claim the space that frees up. */
+.search-row .custom-select { flex: none; width: 150px; }
 .search-input-wrap {
-  flex: 1; display: flex; align-items: center; gap: 8px; background: var(--color-surface);
-  border-radius: 999px; padding: 8px 14px; color: var(--color-text-muted);
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; background: var(--color-surface);
+  border-radius: var(--radius-pill); padding: 8px 14px; color: var(--color-text-muted);
 }
-.search-input-wrap input { border: none; background: none; padding: 0; flex: 1; font-size: 13px; color: var(--color-text); }
+.search-input-wrap input { border: none; background: none; padding: 0; flex: 1; min-width: 0; font-size: 13px; color: var(--color-text); }
 .search-input-wrap input:focus { outline: none; }
 .filter-dropdown {
   display: none; position: absolute; top: calc(100% + 8px); left: 0; right: 0;
   background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 16px;
-  box-shadow: var(--shadow-hover); padding: 16px; z-index: 45;
+  box-shadow: var(--elevation-3); padding: 16px; z-index: 45;
 }
 .filter-dropdown.open { display: block; }
 .dropdown-search { width: 100%; margin-bottom: 10px; }
@@ -237,7 +467,10 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
   text-transform: uppercase; letter-spacing: 0.05em;
 }
 .chip-row, .swatch-row { display: flex; gap: 6px; flex-wrap: wrap; }
-.swatch { width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 2px solid var(--color-border); }
+.swatch {
+  width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 2px solid var(--color-border);
+  padding: 0; flex-shrink: 0;
+}
 .swatch.active { box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-text); }
 
 .banner {
@@ -265,7 +498,7 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 .masonry { position: relative; }
 .card {
   border-radius: var(--radius-card); overflow: hidden; position: absolute; cursor: pointer;
-  background: var(--color-surface); box-shadow: var(--shadow-rest);
+  background: var(--color-surface); box-shadow: var(--elevation-1);
   transition: left var(--transition-fast), top var(--transition-fast), width var(--transition-fast),
     transform var(--transition-fast), box-shadow var(--transition-fast);
   /* Plays once, on insertion, per card — relayout only ever repositions the
@@ -286,7 +519,7 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 @media (prefers-reduced-motion: reduce) {
   .card, section.view.active, .modal-backdrop.active, .modal { animation: none; }
 }
-.card:hover { transform: scale(1.025); box-shadow: var(--shadow-hover); z-index: 2; }
+.card:hover { transform: scale(1.025); box-shadow: var(--elevation-3); z-index: 2; }
 .card .art { width: 100%; display: block; object-fit: cover; }
 .card .overlay {
   position: absolute; inset: 0; background: linear-gradient(to top, rgba(0, 0, 0, 0.55), transparent 45%);
@@ -317,46 +550,70 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
   width: 26px; height: 26px; border-radius: 50%; background: rgba(0, 0, 0, 0.5); border: none;
   color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
-.kebab-menu {
-  /* `top`/`left`/`right`/`position` are set inline by card.ts once open — it
-     computes them off the button's actual screen position (and flips above
-     the button when there isn't room below), because this menu is
-     reparented to `document.body` while open rather than staying inside the
-     card. A card is `overflow: hidden` for its rounded corners, and a wide,
-     short pin leaves little room below the ⋮ button before hitting that
-     clip; escaping the card entirely is what keeps the whole menu visible. */
-  display: none; background: var(--color-bg);
-  border: 1px solid var(--color-border); border-radius: 10px; box-shadow: var(--shadow-hover);
-  min-width: 190px; overflow: hidden; z-index: 300;
-}
-.kebab-menu.open { display: block; }
-.kebab-menu button {
-  display: block; width: 100%; text-align: left; padding: 10px 14px; background: none;
-  border: none; font-size: 12.5px; cursor: pointer; color: var(--color-text);
-}
-.kebab-menu button:hover { background: var(--color-surface); }
-.kebab-divider { height: 1px; background: var(--color-border); margin: 4px 0; }
-.kebab-icon-row { display: flex; align-items: center; justify-content: space-around; padding: 6px 8px; }
-.kebab-icon-row button.icon-only {
-  width: auto; display: inline-flex; align-items: center; justify-content: center;
-  padding: 7px; border-radius: 8px; color: var(--color-text-muted);
-}
-.kebab-icon-row button.icon-only:hover { background: var(--color-surface); color: var(--color-text); }
-.kebab-menu button:disabled { opacity: 0.4; cursor: not-allowed; background: none !important; }
 
-/* Standalone dropdown (the "Add images" menu). Same visual language as the card
-   kebab menu, but with no shared class: its visibility is presence in the DOM,
-   so no other component's close-everything handler can hide it. */
-.menu-popover {
-  position: absolute; z-index: 60; background: var(--color-bg);
-  border: 1px solid var(--color-border); border-radius: 10px;
-  box-shadow: var(--shadow-hover); min-width: 200px; overflow: hidden;
+/* Shared action menu -- design-system unification pass, 2026-09-18. Ported
+   from sibling app Curodav's .action-menu component; built by
+   components/actionMenu.ts (portal-to-body, position:fixed, keyboard nav),
+   not templated, so there's no wrapper/trigger class here -- only the panel
+   itself and its contents. Both addImagesMenu.ts's old .menu-popover and
+   card.ts's old .kebab-menu/.kebab-divider/.kebab-icon-row are gone,
+   migrated onto this -- .kebab-wrap/.kebab-btn above stay, they style the
+   card's ⋮ trigger button itself, not its (now shared) menu panel. */
+.action-menu-panel {
+  position: fixed; z-index: var(--z-overlay-panel); min-width: 190px; max-width: 260px;
+  background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  box-shadow: var(--elevation-3); padding: var(--space-1); overflow: hidden;
 }
-.menu-popover button {
-  display: block; width: 100%; text-align: left; padding: 10px 14px;
-  background: none; border: none; font-size: 12.5px; cursor: pointer; color: var(--color-text);
+.action-menu-section { padding: var(--space-1) 0; }
+.action-menu-section + .action-menu-section {
+  border-top: 1px solid var(--color-border); margin-top: var(--space-1); padding-top: var(--space-2);
 }
-.menu-popover button:hover { background: var(--color-surface); }
+.action-menu-item {
+  display: flex; align-items: center; gap: var(--space-2); width: 100%;
+  padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm);
+  background: none; border: none; font-family: inherit; font-size: var(--text-sm);
+  font-weight: 400; color: var(--color-text); cursor: pointer; text-align: left;
+  white-space: nowrap; text-decoration: none;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.action-menu-item:hover { background: var(--color-surface); }
+.action-menu-item:focus-visible { outline: none; background: var(--color-surface-2); }
+.action-menu-item .micon { flex-shrink: 0; }
+.action-menu-item.danger { color: var(--color-danger); }
+.action-menu-item.danger:hover { background: color-mix(in srgb, var(--color-danger) 12%, transparent); }
+.action-menu-item:disabled { opacity: 0.4; cursor: not-allowed; background: none !important; }
+.action-menu-divider { height: 1px; background: var(--color-border); margin: var(--space-1) 0; }
+/* The current value in a single-select list (components/select.ts) --
+   native <select> highlights its current option, this is the equivalent
+   for the portaled replacement so that affordance isn't lost. */
+.action-menu-item.selected {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+.action-menu-item.selected:hover {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+
+/* Pineart-only extension (not part of Curodav's own component, kept
+   deliberately -- see actionMenu.ts's module doc comment): groups
+   consecutive icon-only entries (ActionMenuItem.iconRow) into one
+   horizontal row instead of stacked full-width rows. Ported visually from
+   the old .kebab-icon-row. */
+.action-menu-icon-row { display: flex; align-items: center; justify-content: space-around; padding: var(--space-2); }
+.action-menu-icon-row .action-menu-item {
+  width: auto; display: inline-flex; padding: 7px; color: var(--color-text-muted);
+}
+.action-menu-icon-row .action-menu-item:hover { background: var(--color-surface); color: var(--color-text); }
+/* 2026-09-18 (direct report: destructive actions like "Delete photo" render
+   in the plain muted icon-row color, not Curodav's red danger convention) --
+   needed because .action-menu-icon-row .action-menu-item above and
+   .action-menu-item.danger have equal specificity (two classes each), so
+   without this more specific override the icon-row rule's plain color wins
+   on source order alone and silently swallows .danger's red. */
+.action-menu-icon-row .action-menu-item.danger { color: var(--color-danger); }
+.action-menu-icon-row .action-menu-item.danger:hover {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger);
+}
 
 /* ---------- icons and buttons ---------- */
 .micon { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
@@ -364,8 +621,8 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 .micon.small svg { width: 16px; height: 16px; }
 
 .btn {
-  display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; border: none;
-  font-size: 13px; font-weight: 600; padding: 8px 16px; cursor: pointer; transition: var(--transition-fast);
+  display: inline-flex; align-items: center; gap: 6px; border-radius: var(--radius-pill); border: none;
+  font-size: 13px; font-weight: 500; padding: 8px 16px; cursor: pointer; transition: var(--transition-fast);
   /* `.btn` decorates plain `<button>`s and the odd `<a>` (Download) alike —
      without this, the anchor got the browser's default underline and no
      other button did, which is exactly the "why is only one of these
@@ -373,22 +630,27 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
   text-decoration: none;
 }
 .btn:disabled { opacity: 0.5; cursor: default; }
+/* "Shy away from bold" (2026-09-19): Curodav's own button hierarchy only
+   goes to 600 for the primary/danger-primary equivalents, 500 for
+   everything else -- Pineart previously put every button variant at 600
+   uniformly. `.btn-filled`/`.btn-error-tonal` are the ones that actually
+   act as a modal's primary/destructive-primary action; `.btn-tonal`/
+   `.btn-outlined` (secondary/cancel-equivalents) inherit the 500 base. */
+.btn-filled, .btn-error-tonal { font-weight: 600; }
 .btn-filled { background: var(--color-accent); color: #fff; }
 .btn-filled:hover:not(:disabled) { filter: brightness(1.08); }
 .btn-tonal { background: color-mix(in srgb, var(--color-accent) 16%, var(--color-surface)); color: var(--color-text); }
 .btn-tonal:hover:not(:disabled) { background: color-mix(in srgb, var(--color-accent) 26%, var(--color-surface)); }
 .btn-outlined { background: transparent; border: 1px solid var(--color-border); color: var(--color-text); }
 .btn-outlined:hover:not(:disabled) { background: var(--color-surface); }
-.btn-error-tonal { background: color-mix(in srgb, #e63946 16%, var(--color-surface)); color: #b3212e; }
-[data-theme="dark"] .btn-error-tonal { color: #ff8a93; }
-/* Two width conventions, used in Settings (and its two directly-launched
-   sub-modals, categoryModal/graphRuleModal) in place of ad hoc inline
+.btn-error-tonal { background: color-mix(in srgb, var(--color-danger) 16%, var(--color-surface)); color: var(--color-danger); }
+/* Two width conventions, used for Settings' own inline action buttons (not
+   modal footers -- those are appendModalActions' territory, deliberately
+   natural-width per its own doc comment) in place of ad hoc inline
    `style="width:..."` attributes — a button's box size should come from
    what kind of action it is, not from how long its label happens to be.
    `.btn-fixed` is for a row-trailing action (Save, Test connection, Close);
-   `.btn-block` fills its container (Add category, Reset physics, and the
-   Save/Delete pair in the two sub-modals, which already got full width for
-   free from `.modal .actions.actions-column` before this class existed). */
+   `.btn-block` fills its container (Add category, Reset physics, ...). */
 .btn-fixed { min-width: 132px; justify-content: center; }
 .btn-block { width: 100%; justify-content: center; }
 
@@ -408,6 +670,49 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
   position: relative;
   animation: modal-pop-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
+/* Curodav-style header / body / footer structure (design-system unification
+   pass, 2026-09-19) -- `.modal-content` is the flex-column wrapper around
+   all three regions, and is `.modal`'s actual flex child (see ui.ts's
+   ModalHandle doc comment for why: `.modal`'s own base `display:flex` stays
+   row-direction, untouched, for itemModal.ts's separate img/info panes,
+   which never use this wrapper at all). */
+.modal-content { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.modal-header { flex-shrink: 0; padding: 20px 22px 14px; border-bottom: 1px solid var(--color-border); }
+.modal-header h3 { margin: 0 0 4px; font-size: 15px; }
+.modal-header p.hint { margin: 0; }
+/* Every modal's body scrolls independently of its header/footer -- closes a
+   latent gap where a simple modal's content taller than `.modal`'s own
+   `max-height:88vh` used to just clip silently (only the duplicates modal
+   had previously worked around this with its own bespoke scroll region). */
+.simple-modal-body, .link-modal-body, .crop-modal-body, .duplicates-modal-body {
+  overflow-y: auto; flex: 1; min-height: 0;
+}
+/* The one footer every modal shares: Cancel at natural width on the left,
+   a spacer, the optional demoted `.delete-link`, then the primary action at
+   natural width on the right -- matches Curodav's own footer layout exactly
+   (`[Cancel] ...spacer... [Delete-link?] [Primary]`), not the old
+   equal-width-stretched-pill pair. */
+.modal-footer {
+  flex-shrink: 0; display: flex; align-items: center; gap: 10px;
+  padding: 14px 22px; border-top: 1px solid var(--color-border);
+}
+.modal-footer .spacer { flex: 1; }
+.modal-footer .btn { flex: none; }
+.modal-footer .hint { margin: 0; }
+/* Demoted destructive action (categoryModal/graphRuleModal/linkModal's
+   "Delete X") -- a text link, not a peer-weight button next to Cancel/Save,
+   matching Curodav's own `.detail-delete-link` treatment. */
+.delete-link {
+  background: none; border: none; color: var(--color-danger); font-size: 13px;
+  font-weight: 500; cursor: pointer; padding: 8px 4px; text-decoration: none;
+}
+.delete-link:hover { text-decoration: underline; }
+/* Side-by-side grouping for same-"type" fields that belong together (e.g.
+   categoryModal's color + icon pickers, both "appearance" choices) rather
+   than stacking them as separate full-width rows -- each column keeps the
+   existing label-above-control stacking. */
+.field-grid { display: flex; gap: 16px; }
+.field-grid > div { flex: 1; }
 @keyframes modal-pop-in {
   from { opacity: 0; transform: scale(0.96) translateY(8px); }
   to { opacity: 1; transform: none; }
@@ -450,6 +755,13 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
   margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--color-border);
 }
 .modal .actions.actions-column { flex-direction: column; align-items: stretch; }
+/* Every footer button centers its own label/icon, and in the plain (non-
+   stacked) row variant takes equal width -- replaces the inline
+   `style="flex:1; justify-content:center;"` every Cancel/primary pair
+   used to repeat at its own call site (design-system unification pass,
+   2026-09-17, ui.ts's appendModalActions). */
+.modal .actions .btn { justify-content: center; }
+.modal .actions:not(.actions-column) .btn { flex: 1; }
 .modal .rec-strip { display: flex; gap: 8px; overflow-x: auto; margin-top: 8px; }
 .modal .rec-strip img { width: 64px; height: 64px; border-radius: 8px; flex-shrink: 0; object-fit: cover; cursor: pointer; }
 .modal .close-btn {
@@ -485,50 +797,42 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 /* The `.modal` shell itself caps its height and clips overflow (rounded
    corners, animation), so a body that can grow past that — like a duplicates
    review with dozens of groups — needs its own scroll region rather than
-   silently clipping the bottom half of the list. Structured as a proper
-   header / scrolling body / footer, each with its own padding, rather than
-   one undifferentiated padded box — only the middle section scrolls
-   (flex:1 + min-height:0), so the heading up top and the action buttons
-   down bottom are always visible and never compete with `.modal`'s own
-   88vh cap and `overflow: hidden` the way a single flowing block did
-   (that previously let content push past the cap and get silently clipped,
-   taking the bottom row's button with it once scrolled that far). */
-.duplicates-modal-body {
-  display: flex; flex-direction: column; width: 100%; padding: 0;
-  max-height: 80vh; box-sizing: border-box;
-}
-.duplicates-modal-header {
-  flex-shrink: 0; padding: 20px 22px 14px; border-bottom: 1px solid var(--color-border);
-}
-.duplicates-modal-header h3 { margin: 0 0 4px; font-size: 15px; }
-.duplicates-modal-header p.hint { margin: 0; }
-.duplicates-modal-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 22px; }
-.duplicates-modal-scroll .sidebar-list { margin-bottom: 0; }
-/* flex-end, not space-between — the footer's only guaranteed member is
-   Close. "Trash all extras" is prepended when there's something to resolve
-   and pushes itself to the opposite edge via `margin-right: auto` (in
-   settings.ts) rather than the footer assuming it's always there. */
-.duplicates-modal-footer {
-  flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end;
-  gap: 10px; padding: 14px 22px; border-top: 1px solid var(--color-border);
-}
-.duplicates-modal-footer .hint { margin: 0; }
+   silently clipping the bottom half of the list. Now just the shared
+   `.modal-header`/`.modal-footer` (design-system unification pass,
+   2026-09-19) pinning this modal's title/Close button outside the scroll
+   region, the same as every other modal — `.duplicates-modal-body` itself
+   is only the padding this modal's scrolling list needs, on top of the
+   shared scroll/flex rule above. */
+.duplicates-modal-body { padding: 16px 22px; width: 100%; }
+.duplicates-modal-body .sidebar-list { margin-bottom: 0; }
 /* Sticky, not just top-of-list — used where the bulk "resolve all" button
    sits inside the scrolling list itself (the Tags → Cleanup panel, which has
    no separate footer) so it stays reachable without scrolling back up. The
-   duplicates modal instead puts this button in `.duplicates-modal-footer`,
+   duplicates modal instead puts this button in the shared `.modal-footer`,
    which is already pinned outside the scroll region. */
 .duplicates-toolbar {
   position: sticky; top: 0; z-index: 1; background: var(--color-bg);
   padding-bottom: 10px; margin-bottom: 6px;
 }
-.icon-picker { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 6px; }
-.icon-picker button {
-  aspect-ratio: 1; border-radius: 10px; border: 1px solid var(--color-border);
+/* Icon picker (components/iconPicker.ts, design-system unification pass,
+   2026-09-19) -- replaces the old always-expanded `.icon-picker` inline grid
+   with a portaled dropdown, the same trigger+popover shape as
+   `.color-swatch-trigger`/`.color-swatch-grid` right above. */
+.icon-swatch-trigger {
+  width: 30px; height: 30px; border-radius: var(--radius-sm); border: 1.5px solid var(--color-border);
   background: var(--color-surface); display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: var(--color-text); transition: var(--transition-fast);
+  cursor: pointer; color: var(--color-text); transition: border-color var(--transition-fast);
 }
-.icon-picker button.selected { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
+.icon-swatch-trigger:hover, .icon-swatch-trigger[aria-expanded="true"] { border-color: var(--color-text-muted); }
+.icon-swatch-trigger:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.icon-swatch-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-1); padding: var(--space-1); }
+.icon-swatch-option {
+  width: 32px; height: 32px; padding: 0; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1.5px solid transparent; cursor: pointer; color: var(--color-text);
+}
+.icon-swatch-option:hover { background: var(--color-surface); }
+.icon-swatch-option.selected { background: var(--color-accent); color: #fff; }
 
 .crop-stage-wrap { display: flex; justify-content: center; max-height: 46vh; overflow: hidden; }
 .crop-stage-wrap img { max-width: 100%; display: block; }
@@ -537,6 +841,7 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 
 /* ---------- boards ---------- */
 .board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 18px; }
+.section-divider { border: 0; border-top: 1px solid var(--color-border); margin: 28px 0 0; }
 .board-card {
   cursor: pointer;
   /* Same staggered pop-in every pin card gets — see `.card`'s animation
@@ -548,11 +853,11 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
   .board-card { animation: none; }
 }
 .board-card .board-cover {
-  border-radius: var(--radius-card); height: 150px; box-shadow: var(--shadow-rest);
+  border-radius: var(--radius-card); height: 150px; box-shadow: var(--elevation-1);
   transition: var(--transition-fast); background: var(--color-surface-2);
   background-size: cover; background-position: center;
 }
-.board-card:hover .board-cover { box-shadow: var(--shadow-hover); transform: scale(1.015); }
+.board-card:hover .board-cover { box-shadow: var(--elevation-3); transform: scale(1.015); }
 .board-card .board-name { font-size: 13.5px; font-weight: 600; margin-top: 9px; display: flex; align-items: center; gap: 6px; }
 .board-card .board-desc {
   font-size: 12px; color: var(--color-text-muted); margin-top: 2px; display: -webkit-box;
@@ -604,25 +909,33 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 
 /* ---------- tag graph ---------- */
 #tagGraph {
-  width: 100%; height: 460px; border-radius: var(--radius-card); background: var(--color-surface);
+  width: 100%; flex: 1; min-height: 600px; border-radius: var(--radius-card); background: var(--color-surface);
   border: 1px solid var(--color-border); overflow: hidden; position: relative;
 }
 #tagGraph svg { display: block; }
 .graph-recenter-btn {
   position: absolute; top: 8px; right: 8px; z-index: 5;
-  background: var(--color-bg); box-shadow: var(--shadow-rest);
+  background: var(--color-bg); box-shadow: var(--elevation-1);
 }
 .graph-recenter-btn:hover { background: var(--color-surface-2); }
 .graph-node text { fill: var(--color-text-muted); font-size: 10px; user-select: none; }
 
 /* Tags panel: graph on the left, one sidebar card on the right holding the
    tag editor, categories and rules/physics as tabs instead of four stacked
-   cards competing for the same vertical scroll. */
-.tags-layout { display: flex; gap: 16px; align-items: flex-start; }
-.tags-graph-col { flex: 1; min-width: 0; }
+   cards competing for the same vertical scroll. `align-items: stretch`
+   (flexbox's own default -- spelled out here since it's easy to assume the
+   old `flex-start` was load-bearing) makes both columns match height, the
+   standard equal-height-flex-columns technique; `min-height` on the row is
+   the 600px floor that applies even when the sidebar's own active tab is
+   short. `.tags-graph-col` is a flex column itself so `#tagGraph`'s own
+   `flex: 1` can actually claim that stretched height instead of sitting at
+   its own content size with dead space below it. */
+.tags-layout { display: flex; gap: 16px; align-items: stretch; min-height: 600px; }
+.tags-graph-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .tags-sidebar {
   width: 340px; flex-shrink: 0; background: var(--color-surface); border: 1px solid var(--color-border);
-  border-radius: var(--radius-card); padding: 14px 16px; box-sizing: border-box; overflow: hidden;
+  border-radius: var(--radius-card); padding: 14px 16px; box-sizing: border-box;
+  overflow-x: hidden; overflow-y: auto;
 }
 /* Categories and rules both list as name + edit + remove — adding or editing
    either happens in a modal (categoryModal.ts / graphRuleModal.ts), not an
@@ -662,7 +975,14 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
    nav column (width + gap) eats into the space actually available here
    before the viewport itself gets anywhere near a normal mobile width. */
 @media (max-width: 1150px) {
-  .tags-layout { flex-direction: column; }
+  /* Stacked, not side-by-side -- matching height no longer means anything
+     once the sidebar is below the graph instead of next to it, so the row's
+     own 600px floor (still enforced on `#tagGraph` itself) is dropped here
+     to avoid stretching the stack taller than its content needs. Both
+     columns still take the full available width, same as every other
+     element at this breakpoint. */
+  .tags-layout { flex-direction: column; min-height: 0; }
+  .tags-graph-col { width: 100%; }
   .tags-sidebar { width: 100%; }
 }
 
@@ -680,7 +1000,15 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
    `.subview`/`.subview.active` show-one-at-a-time pattern `boards.ts`
    already uses for Feed/Boards, plus their own `.settings-panel` class for
    the layout rules below. */
-.settings-shell { display: flex; align-items: flex-start; gap: 40px; }
+/* Capped so the nav + 620px form (`.settings-form` below) don't sit next to
+   a huge stretch of empty background on a wide window — `main` itself no
+   longer imposes a page-wide cap (2026-09-19), and without one here the six
+   form-style panels would float in whatever's left of the viewport. Tags and
+   Trash need the opposite — their graph and grid actually benefit from extra
+   room — so `setTab` (settings.ts) adds `.settings-shell--wide` for those two
+   tabs specifically, which lifts the cap. */
+.settings-shell { display: flex; gap: 40px; max-width: 900px; }
+.settings-shell--wide { max-width: none; }
 .settings-nav {
   width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px;
   position: sticky; top: 76px;
@@ -711,15 +1039,43 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 .settings-group { padding: 22px 0; }
 .settings-group:first-child { padding-top: 0; }
 .settings-group + .settings-group { border-top: 1px solid var(--color-border); }
-.settings-group h4 { margin: 0 0 12px; font-size: 13px; }
+.settings-group h4 { margin: 0 0 var(--space-3); font-size: var(--text-base); font-weight: 600; color: var(--color-text); }
 .field-row {
   display: flex; align-items: center; justify-content: space-between;
   min-height: 38px; margin-bottom: 10px; font-size: 13px; gap: 10px;
 }
+/* A field-row's control -- a plain input, native select, or `.custom-select`
+   trigger -- takes a fixed proportion of the row's own width instead of its
+   default/content-driven size (direct feedback, 2026-09-19: a native number
+   input's browser-default size and `.custom-select`'s own `width:100%` used
+   to size completely differently side-by-side with the same label,
+   depending only on which kind of control happened to be plugged into the
+   row). `flex-basis` as a percentage, not a flat px value, so it stays
+   proportionate whether the row lives in the 620px settings panel or a
+   narrower modal, and wins over `.custom-select`'s own `width:100%` (a
+   non-auto flex-basis always overrides `width` for main-axis sizing). */
+.field-row > input, .field-row > select, .field-row > .custom-select {
+  flex: 0 0 45%;
+}
 .field-col label { display: block; font-size: 12px; color: var(--color-text-muted); margin: 0 0 5px; }
-.field-col input, .field-col textarea { width: 100%; margin-bottom: 12px; }
+/* `.custom-select` added 2026-09-19 -- the tag editor's Name/Category/Link/
+   Merge-into fields all moved onto this existing label-above-control
+   pattern instead of `.field-row`'s side-by-side layout, specifically so a
+   dropdown trigger sizes identically to a plain text input (both 100% of
+   the same row) regardless of each field's own content length or how
+   narrow the sidebar gets -- a side-by-side row couldn't guarantee that
+   without either overflowing (a fixed width holding its ground next to a
+   label) or shrinking unevenly (flexbox's default shrink, compressing a
+   short selection like "Anime" more than a long one like "Character"). */
+.field-col input, .field-col textarea, .field-col .custom-select { width: 100%; margin-bottom: 12px; }
 .radio-row { display: flex; gap: 14px; font-size: 13px; }
-.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #2ecc71; display: inline-block; margin-right: 6px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-success); display: inline-block; margin-right: 6px; }
+/* Neutral variant -- the Data Management status cards below have no real
+   healthy/unhealthy state to report (Pineart doesn't track backup history or
+   sync devices the way sibling app Curodav does), so their status line uses
+   this muted dot rather than borrowing the success-green one for a state
+   that isn't actually "good", just "idle". */
+.status-dot.muted { background: var(--color-text-muted); }
 .preview-row { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
 .preview-row .mini-avatar { width: 48px; height: 48px; border-radius: 50%; flex-shrink: 0; background: var(--color-surface-2); background-size: cover; background-position: center; }
 .preview-row .mini-banner { width: 110px; height: 48px; border-radius: 8px; flex-shrink: 0; background: var(--color-surface-2); background-size: cover; background-position: center; }
@@ -746,6 +1102,38 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
   display: inline-block; margin: 3px 0; user-select: all; word-break: break-all;
 }
 .template-row .btn { flex-shrink: 0; font-size: 12px; padding: 6px 12px; }
+
+/* ---------- data management status cards ----------
+   Ported from sibling app Curodav's Data & Maintenance page (direct
+   feedback, 2026-09-19: "make this page more similar to [that layout] --
+   the cards with hamburger menu"), replacing the old flat `.field-row` list
+   of buttons. `auto-fit`/`minmax` rather than a fixed 3-column grid so the
+   row still reads as cards (not a squeezed single column) if this panel
+   ever gains a fourth, at whatever width `.settings-form`'s 620px cap
+   leaves available. */
+.status-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.status-card {
+  border: 1px solid var(--color-border); border-radius: var(--radius-card);
+  background: var(--color-bg); padding: 14px 16px;
+}
+.status-card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.status-card-title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: var(--text-sm); }
+.status-card-header .icon-btn { padding: 5px; margin: -5px; }
+.status-card-status { display: flex; align-items: center; font-size: 12.5px; font-weight: 600; margin: 0 0 4px; }
+.status-card-desc { font-size: 12px; color: var(--color-text-muted); margin: 0; }
+/* The danger-zone card below the grid: same bordered/rounded card shell as
+   `.status-card`, but a row-per-action list (title+description left, the
+   one destructive button right) with dividers between rows instead of a
+   card's own self-contained content -- matches Curodav's "Restart app" /
+   "Auto-archive..." card lower on the same page. */
+.settings-card {
+  border: 1px solid var(--color-border); border-radius: var(--radius-card);
+  background: var(--color-bg); padding: 0 16px;
+}
+.settings-card-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 0; }
+.settings-card-row + .settings-card-row { border-top: 1px solid var(--color-border); }
+.settings-card-row strong { display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 3px; }
+.settings-card-row p { margin: 0; max-width: 440px; }
 
 /* ---------- artwork versions ---------- */
 /* A card by border and padding, not by a different background fill — it
@@ -799,7 +1187,7 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 .tag-suggestions {
   display: none; position: fixed; z-index: 310;
   background: var(--color-bg); border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm); box-shadow: var(--shadow-hover);
+  border-radius: var(--radius-sm); box-shadow: var(--elevation-3);
   max-height: 240px; overflow-y: auto;
 }
 .tag-suggestions.open { display: block; }
@@ -842,11 +1230,11 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 /* ---------- toasts ---------- */
 .toast-stack { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 200; align-items: center; }
 .toast {
-  background: var(--color-text); color: var(--color-bg); padding: 10px 16px; border-radius: 999px;
-  font-size: 13px; box-shadow: var(--shadow-hover); animation: toast-in 200ms ease-out;
+  background: var(--color-text); color: var(--color-bg); padding: 10px 16px; border-radius: var(--radius-pill);
+  font-size: 13px; box-shadow: var(--elevation-3); animation: toast-in 200ms ease-out;
   max-width: 90vw;
 }
-.toast.error { background: #b3212e; color: #fff; }
+.toast.error { background: var(--color-danger); color: #fff; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 /* ---------- responsive: real behaviour, not a preview toggle ----------
@@ -863,11 +1251,12 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 .bottom-tabbar button.active { color: var(--color-accent); }
 
 @media (max-width: 640px) {
-  /* The whole topbar, not just its nav links — the bottom tab bar already
+  /* The whole sidebar, not just its nav links — the bottom tab bar already
      covers navigation on mobile, and its own Settings/Add-images stand-ins
      (the latter now also present as a button inside Settings) cover the rest,
-     so there's nothing left in the topbar mobile actually needs. */
-  header.topnav { display: none; }
+     so there's nothing left in the sidebar mobile actually needs. */
+  .sidebar { display: none; }
+  body { padding-left: 0; }
   main { padding: 12px 14px calc(84px + env(safe-area-inset-bottom)); }
   .bottom-tabbar {
     /* Fixed, not sticky: sticky only pins the bar once the page has scrolled
@@ -943,12 +1332,11 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
     flex: none; overflow-y: visible; padding-bottom: calc(20px + env(safe-area-inset-bottom));
   }
 
-  /* The duplicates modal manages its own scroll region against `.modal`'s
-     max-height (see the comment on `.duplicates-modal-body`) — it needs the
-     same headroom bump as the sheet itself so it isn't left capped to the
-     old desktop-era 80vh once the sheet can go to 92vh. */
-  .duplicates-modal-header { padding-top: 24px; }
-  .duplicates-modal-body { max-height: 92vh; }
+  /* Every modal header needs extra top clearance here, not just the
+     duplicates modal's — the mobile bottom-sheet's own drag handle
+     (`.sheet-handle`) sits right above it, and without this the title text
+     collides with the handle instead of sitting clearly below it. */
+  .modal-header { padding-top: 24px; }
 
   .board-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .drawer { width: 100%; right: -100%; }
@@ -1056,7 +1444,7 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
    UI has to say so itself rather than silently stop working. */
 .connectivity-banner {
   position: fixed; top: 0; left: 0; right: 0; z-index: 300;
-  background: #b3212e; color: #fff; text-align: center; font-size: 13px;
+  background: var(--color-danger); color: #fff; text-align: center; font-size: 13px;
   padding: 8px 16px; transform: translateY(-100%); transition: transform var(--transition-fast);
 }
 .connectivity-banner.visible { transform: translateY(0); }
@@ -1066,7 +1454,7 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
   position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom));
   z-index: 250; background: var(--color-accent); color: #fff; border-radius: var(--radius-sm);
   padding: 10px 14px; font-size: 13px; display: flex; align-items: center;
-  justify-content: space-between; gap: 12px; box-shadow: var(--shadow-hover);
+  justify-content: space-between; gap: 12px; box-shadow: var(--elevation-3);
 }
 
 /* ---------- styled error view (404 / boot failure) ---------- */
@@ -1091,11 +1479,12 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
    as a simple reference sheet — thumbnail plus citation metadata — rather
    than whatever the interactive layout happens to look like. */
 @media print {
-  header.topnav, nav.views, .bulk-toolbar, .board-header .row-actions,
+  .sidebar, nav.views, .bulk-toolbar, .board-header .row-actions,
   .kebab-wrap, .search-bar, .drop-overlay, .connectivity-banner,
   .footer, button:not(.print-keep) {
     display: none !important;
   }
+  body { padding-left: 0 !important; }
   body, .view { background: #fff !important; color: #000 !important; }
   .masonry { display: block !important; position: static !important; }
   .masonry.print-citations .card {

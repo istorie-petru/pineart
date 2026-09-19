@@ -551,8 +551,14 @@ def get_file(item_id: int, kind: str, db: Session = Depends(get_db)) -> FileResp
     This is the rule that keeps browsing fast independently of source format: a
     grid of 40 multi-megabyte PNGs is slow at any collection size, while the same
     grid of ~400px WebP thumbs is not.
+
+    `hero` (2026-09-18) only exists for avatar/banner/board_cover crops --
+    images.py's HERO_TARGET_SUFFIXES/`process()` only write it for those
+    storage keys, so requesting it for a regular grid item 404s with
+    "Derivative missing on disk" rather than silently falling back to
+    `display`.
     """
-    if kind not in ("thumb", "display"):
+    if kind not in ("thumb", "display", "hero"):
         raise HTTPException(status_code=404, detail="Unknown derivative")
     item = _get_item(db, item_id)
     path = images.derivative_path(item.storage_path, kind)

@@ -3,7 +3,17 @@
 import { api } from "../api";
 import { store } from "../store";
 import type { Board, Item } from "../types";
-import { appendTagLabel, el, guard, openModal, readableTextColor, serialize, tagColor } from "../ui";
+import {
+  appendModalActions,
+  appendModalCloseButton,
+  appendTagLabel,
+  el,
+  guard,
+  openModal,
+  readableTextColor,
+  serialize,
+  tagColor,
+} from "../ui";
 import { TagInput } from "./tagInput";
 
 export function pickBoard(options: { excludeDynamic?: boolean } = {}): Promise<Board | null> {
@@ -11,14 +21,18 @@ export function pickBoard(options: { excludeDynamic?: boolean } = {}): Promise<B
     let settled = false;
     const modal = openModal({
       maxWidth: "400px",
+      title: "Add to board",
       onClose: () => {
         if (!settled) resolve(null);
       },
     });
-    const heading = el("h3");
-    heading.textContent = "Add to board";
     const list = el("div", { class: "checkbox-list" });
-    modal.body.append(heading, list);
+    modal.body.append(list);
+    // Clicking a board finishes the picker directly (each button is its own
+    // action) -- this is just the one dismiss action for backing out without
+    // picking anything, resolving the promise the same way the backdrop/
+    // Escape/corner-X already do.
+    appendModalCloseButton(modal, "Cancel");
 
     const finish = (board: Board) => {
       settled = true;
@@ -70,21 +84,19 @@ export function promptTags(title: string): Promise<string[] | null> {
     let settled = false;
     const modal = openModal({
       maxWidth: "420px",
+      title,
       onClose: () => {
         if (!settled) resolve(null);
       },
     });
-    const heading = el("h3");
-    heading.textContent = title;
     const label = el("label");
     label.textContent = "Tags";
     const tagInput = new TagInput({ placeholder: "Start typing — suggestions appear as you go" });
-    const submit = el("button", { class: "btn btn-filled", style: "justify-content:center;" });
+    const submit = el("button", { class: "btn btn-filled" });
     submit.textContent = "Apply";
-    const actions = el("div", { class: "actions actions-column" });
-    actions.append(submit);
 
-    modal.body.append(heading, label, tagInput.element, actions);
+    modal.body.append(label, tagInput.element);
+    appendModalActions(modal, submit);
     tagInput.focus();
 
     const commit = () => {
@@ -106,9 +118,7 @@ export function promptTags(title: string): Promise<string[] | null> {
  * standalone so a single click from the grid can reach it.
  */
 export function openTagsEditorModal(item: Item, onChanged?: (updated: Item) => void): void {
-  const modal = openModal({ maxWidth: "420px" });
-  const heading = el("h3");
-  heading.textContent = "Tags";
+  const modal = openModal({ maxWidth: "420px", title: "Tags" });
   const chipRow = el("div", { style: "margin: 12px 0;" });
   // Each edit reads-then-full-replaces the tag list; queued so a rapid
   // remove-then-add can't have its second request built from a snapshot the
@@ -166,6 +176,9 @@ export function openTagsEditorModal(item: Item, onChanged?: (updated: Item) => v
   });
 
   renderChips(item);
-  modal.body.append(heading, chipRow, label, tagInput.element);
+  modal.body.append(chipRow, label, tagInput.element);
+  // Each add/remove already commits via the API immediately -- nothing left
+  // to confirm, only dismiss.
+  appendModalCloseButton(modal, "Close");
   tagInput.focus();
 }

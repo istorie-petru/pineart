@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from .config import get_config
 from .db import get_db
 from .services import auth
 
@@ -16,7 +17,13 @@ def require_session(request: Request, db: Session = Depends(get_db)) -> None:
     router-include time rather than per-endpoint is deliberate: a new endpoint is
     then protected by default, and forgetting a decorator cannot silently open a
     hole.
+
+    Short-circuits when `config.auth_bypassed` -- see `Config.dev_skip_auth`'s
+    own comment for exactly what that requires and why it can't leak into a
+    real deploy.
     """
+    if get_config().auth_bypassed:
+        return
     token = request.cookies.get(auth.SESSION_COOKIE)
     if auth.resolve_session(db, token) is None:
         # 401 with this body lets the frontend distinguish "log in" from "set up

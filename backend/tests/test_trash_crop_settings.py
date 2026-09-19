@@ -88,7 +88,18 @@ def test_avatar_crop_wires_itself_into_settings(client):
     assert derived["derivative_target"] == "avatar"
     settings = client.get("/api/settings").json()
     assert settings["profile.avatar_item_id"] == derived["id"]
-    assert settings["profile.avatar_url"] == f"/api/items/{derived['id']}/file/display"
+    assert settings["profile.avatar_url"] == f"/api/items/{derived['id']}/file/hero"
+
+    # 2026-09-18 (direct report: "avatar or banner... are supposed to be big
+    # and beautiful, not lower version quality") -- the hero derivative is a
+    # real, separate file (not an alias for display), served correctly, and
+    # a plain grid item never gets one at all (images.py's
+    # HERO_TARGET_SUFFIXES only matches avatar/banner/board_cover stems).
+    hero_resp = client.get(settings["profile.avatar_url"])
+    assert hero_resp.status_code == 200
+    directory = images.storage_dir_for(f"{source['hash']}_avatar")
+    assert (directory / f"{source['hash']}_avatar_hero.webp").exists()
+    assert client.get(f"/api/items/{source['id']}/file/hero").status_code == 404
 
 
 def test_board_cover_crop_sets_the_board_cover(client):
@@ -102,7 +113,7 @@ def test_board_cover_crop_sets_the_board_cover(client):
 
     updated = client.get(f"/api/boards/{board['id']}").json()
     assert updated["cover_item_id"] == derived["id"]
-    assert updated["cover_url"] == f"/api/items/{derived['id']}/file/display"
+    assert updated["cover_url"] == f"/api/items/{derived['id']}/file/hero"
 
 
 def test_crop_enforces_the_target_aspect_ratio_server_side(client):

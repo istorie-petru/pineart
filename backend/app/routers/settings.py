@@ -21,6 +21,12 @@ def _decorate(db: Session, values: dict[str, Any]) -> dict[str, Any]:
 
     Saves the frontend a second round-trip on every page load just to turn two
     item ids into two `<img src>` values.
+
+    `/file/hero` (2026-09-18, direct report: "avatar or banner... are
+    supposed to be big and beautiful, not lower version quality") rather than
+    `/file/display` -- these crops get their own much higher quality/size
+    derivative (images.py's HERO_TARGET_SUFFIXES), since there's exactly one
+    of each per profile rather than thousands like a grid item.
     """
     out = dict(values)
     for key, field in (
@@ -30,7 +36,7 @@ def _decorate(db: Session, values: dict[str, Any]) -> dict[str, Any]:
         item_id = values.get(key)
         out[field] = None
         if item_id and db.get(Item, int(item_id)) is not None:
-            out[field] = f"/api/items/{int(item_id)}/file/display"
+            out[field] = f"/api/items/{int(item_id)}/file/hero"
     return out
 
 

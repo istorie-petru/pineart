@@ -13,6 +13,11 @@ deploy/deploy.env
 *.swp
 .idea/
 .vscode/
+.claude/
 
-# Personal dev tooling — not part of the app.
-/publish.sh
+# Personal dev tooling — not part of the app. git-push.sh (2026-09-18)
+# supersedes the old publish.sh: same idea, split into a low-ceremony
+# git-commit.sh for day-to-day saves plus a git-push.sh that squashes
+# whatever's unpushed into one commit before tagging/releasing.
+/git-commit.sh
+/git-push.sh

@@ -8,7 +8,7 @@
 
 import { layout, observe, type MasonryEntry } from "../masonry";
 import type { Item, ItemPage } from "../types";
-import { el, guard } from "../ui";
+import { el, emptyStateMessage, guard } from "../ui";
 import { makeCard, type CardOptions } from "./card";
 
 export interface GridOptions extends CardOptions {
@@ -70,9 +70,8 @@ export class Grid {
   constructor(private readonly options: GridOptions) {
     this.root = el("div");
     this.container = el("div", { class: "masonry" });
-    this.emptyEl = el("p", { class: "empty-msg" });
+    this.emptyEl = emptyStateMessage(options.emptyMessage ?? "Nothing here yet.");
     this.emptyEl.hidden = true;
-    this.emptyEl.textContent = options.emptyMessage ?? "Nothing here yet.";
 
     this.loadMoreBtn = el("button", { class: "btn btn-outlined" }) as HTMLButtonElement;
     this.loadMoreBtn.textContent = "Load more";

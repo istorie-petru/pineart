@@ -18,11 +18,12 @@ import { openCropModal } from "../components/cropModal";
 import { Grid } from "../components/grid";
 import { openItemModal } from "../components/itemModal";
 import { pickBoard, openTagsEditorModal, promptTags } from "../components/pickers";
+import { createSelect, type CustomSelect } from "../components/select";
 import { icon } from "../icons";
 import * as router from "../router";
 import { store } from "../store";
 import type { Board, Tag } from "../types";
-import { confirmDialog, el, guard, openModal, renderErrorView, toast } from "../ui";
+import { appendModalCloseButton, confirmDialog, el, guard, openModal, renderErrorView, toast, toggleSwitch } from "../ui";
 
 export function renderBoardDetail(root: HTMLElement, boardId: number): () => void {
   const section = el("section", { class: "view active" });
@@ -109,7 +110,7 @@ export function renderBoardDetail(root: HTMLElement, boardId: number): () => voi
       { action: "board_cover", label: "Set as this board's cover" },
       { action: "tags", label: "Edit tags", icon: "tag", dividerBefore: true },
       { action: "add_to_board", label: "Add to board", icon: "addBoard" },
-      { action: "delete", label: "Delete photo", icon: "trash" },
+      { action: "delete", label: "Delete photo", icon: "trash", danger: true },
     ],
     fetchPage: (cursor) =>
       api.listItems({
@@ -375,31 +376,32 @@ function openTagToggleModal(
   active: Set<number>,
   onToggle: (tag: Tag, enabled: boolean) => Promise<void>,
 ): void {
-  const modal = openModal({ maxWidth: "380px" });
-  const heading = el("h3");
-  heading.textContent = "Subboard tags";
+  const modal = openModal({ maxWidth: "380px", title: "Subboard tags" });
   const hint = el("p", { class: "hint" });
   hint.textContent = "Activating a tag adds a tab that filters this board down to items carrying it.";
   const list = el("div", { class: "checkbox-list", style: "margin-top:12px;" });
   for (const tag of tags) {
-    const label = el("label");
-    const checkbox = el("input", { type: "checkbox" }) as HTMLInputElement;
-    checkbox.checked = active.has(tag.id);
-    checkbox.addEventListener(
-      "change",
-      guard(async () => {
-        await onToggle(tag, checkbox.checked);
-      }),
-    );
-    label.append(checkbox, document.createTextNode(tag.name));
-    list.append(label);
+    // Each row is an independent on/off (is THIS tag active as a subboard
+    // filter), not a bulk-action "select some of these" checklist -- a
+    // toggle switch per row is the right fit, unlike boardModal.ts's tag
+    // *selection* list right below, which stays plain checkboxes.
+    const row = el("div", { style: "display:flex; align-items:center; gap:8px;" });
+    const onToggleChange = guard(async (checked: boolean) => {
+      await onToggle(tag, checked);
+    });
+    const rowSwitch = toggleSwitch(active.has(tag.id), onToggleChange, tag.name);
+    row.append(rowSwitch.element, document.createTextNode(tag.name));
+    list.append(row);
   }
   if (!tags.length) {
     const empty = el("p", { class: "hint" });
     empty.textContent = "No tags on this board's items yet.";
     list.append(empty);
   }
-  modal.body.append(heading, hint, list);
+  modal.body.append(hint, list);
+  // Each toggle already commits immediately via `onToggle` -- nothing left
+  // to confirm, only dismiss.
+  appendModalCloseButton(modal, "Close");
 }
 
 function openBoardDrawer(board: Board, onSaved: () => Promise<void>, onDeleted: () => void): void {
@@ -427,7 +429,7 @@ function openBoardDrawer(board: Board, onSaved: () => Promise<void>, onDeleted: 
   // of pins — this is the same match-mode/tag-checkbox picker boardModal.ts
   // uses at creation, reused here so the query isn't locked in forever.
   let queryBlock: HTMLElement | null = null;
-  let modeSelect: HTMLSelectElement | null = null;
+  let modeSelect: CustomSelect | null = null;
   let tagList: HTMLElement | null = null;
   if (board.is_dynamic) {
     queryBlock = el("div", { style: "margin-top:14px;" });
@@ -435,20 +437,19 @@ function openBoardDrawer(board: Board, onSaved: () => Promise<void>, onDeleted: 
     queryLabel.textContent = "Saved-search filters";
     const modeLabel = el("label", { style: "margin-top:10px;" });
     modeLabel.textContent = "Match";
-    modeSelect = el("select") as HTMLSelectElement;
-    for (const [value, label] of [
-      ["any", "Any of these tags (OR)"],
-      ["all", "All of these tags (AND)"],
-    ]) {
-      const option = el("option", { value }) as HTMLOptionElement;
-      option.textContent = label;
-      modeSelect.append(option);
-    }
-    modeSelect.value = board.match_mode;
+    modeSelect = createSelect(
+      [
+        { value: "any", label: "Any of these tags (OR)" },
+        { value: "all", label: "All of these tags (AND)" },
+      ],
+      board.match_mode,
+      undefined,
+      { ariaLabel: "Match" },
+    );
     const tagsLabel = el("label", { style: "margin-top:10px;" });
     tagsLabel.textContent = "Tags";
     tagList = el("div", { class: "checkbox-list" });
-    queryBlock.append(queryLabel, modeLabel, modeSelect, tagsLabel, tagList);
+    queryBlock.append(queryLabel, modeLabel, modeSelect.element, tagsLabel, tagList);
 
     const checkedIds = new Set(board.query_tags.map((t) => t.id));
     void store.loadTags().then(() => {
@@ -501,7 +502,7 @@ function openBoardDrawer(board: Board, onSaved: () => Promise<void>, onDeleted: 
         description: descInput.value.trim() || null,
       };
       if (board.is_dynamic && modeSelect && tagList) {
-        const matchMode = modeSelect.value as "all" | "any";
+        const matchMode = modeSelect.getValue() as "all" | "any";
         const tagIds = Array.from(
           tagList.querySelectorAll<HTMLInputElement>("input:checked"),
           (input) => Number(input.value),

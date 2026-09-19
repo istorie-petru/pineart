@@ -7,6 +7,8 @@ faith (see `advance.md` §3). Format loosely follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-19
+
 ### Changed
 - Replaced `backend/deploy/deploy.sh` (git-checkout-a-tag-in-place) and the
   tracked `artboard.service`/`artboard-purge.{service,timer}` units with
@@ -17,6 +19,10 @@ faith (see `advance.md` §3). Format loosely follows
   `Caddyfile.example` now points at `/srv/artboard/current/frontend/dist`.
 
 ### Added
+- An "Untagged" section on the Boards page, below the board grid, showing a
+  live feed of items with zero tags (backed by the existing
+  `GET /api/items/untagged` endpoint) so untagged items surface right where
+  you're already organizing.
 - Atomic file writes for stored images (temp file + `os.replace`), so a crash
   mid-write can no longer leave a half-written original at its real path.
 - `/api/maintenance/integrity` — re-verifies every stored original is still a

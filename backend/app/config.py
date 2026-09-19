@@ -86,9 +86,35 @@ class Config(BaseSettings):
     # the systemd unit and compose file both do.
     secure_cookies: bool = False
 
+    # 2026-09-18 (direct request: "the dev version should have a parameter to
+    # skip password... ONLY for the dev version") -- lets `./run.sh --skip-auth`
+    # (the plain dev-server mode only; never --prod, --docker, or artboard-ctl)
+    # bypass the login/setup screen entirely, mirroring sibling app Curodav's
+    # own local dev default (open unless CC_DEPLOY_MODE=production). Never
+    # written by write_env_template() or any .env.example -- it only ever
+    # exists as a one-shot exported env var for a single `run.sh` invocation.
+    #
+    # `deps.require_session`/`routers.auth.status` additionally refuse to honor
+    # this unless `secure_cookies` is also False -- production always sets
+    # ARTBOARD_SECURE_COOKIES=true (write_env_template, compose, systemd unit),
+    # so the two would have to be deliberately misconfigured together for this
+    # to ever activate somewhere it shouldn't. Belt-and-suspenders on top of
+    # "nothing ever sets this var in a real deploy" rather than relying on that
+    # alone.
+    dev_skip_auth: bool = False
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def auth_bypassed(self) -> bool:
+        """True only when the dev-only skip-auth escape hatch (dev_skip_auth's
+        own comment) is both requested AND the safety-net condition holds.
+        Single source of truth for both `deps.require_session` and
+        `routers.auth.status`, so the two can never disagree about whether a
+        request is "logged in" for this reason."""
+        return self.dev_skip_auth and not self.secure_cookies
 
     @property
     def images_dir(self) -> Path:

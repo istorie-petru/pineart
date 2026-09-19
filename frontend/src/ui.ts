@@ -1,6 +1,8 @@
 /** Small DOM helpers, toasts and the generic modal shell. */
 
+import { ApiError } from "./api";
 import { icon } from "./icons";
+import { TAG_PALETTE } from "./palette";
 
 export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -21,6 +23,46 @@ export function qs<T extends Element = HTMLElement>(selector: string, root: Pare
   const found = root.querySelector<T>(selector);
   if (!found) throw new Error(`Missing element: ${selector}`);
   return found;
+}
+
+/**
+ * The plain "nothing here yet" empty-state message (design-system
+ * unification pass, 2026-09-17) -- one function for the `.empty-msg`
+ * markup, used by both Grid's own built-in empty state (boards.ts's item
+ * search, boardDetail.ts, settings.ts's trash) and feed.ts's hand-rolled
+ * status line (Discover isn't Grid-backed, so it manages its own show/
+ * hide text directly, but the visual result should still be the same one
+ * pattern, not two independently-typed copies of the class name).
+ */
+export function emptyStateMessage(text: string): HTMLElement {
+  const message = el("p", { class: "empty-msg" });
+  message.textContent = text;
+  return message;
+}
+
+/**
+ * A slide toggle for a single boolean preference (design-system unification
+ * pass, 2026-09-18, ported from sibling app Curodav's own `.switch`) --
+ * builds the `<label class="switch"><input type="checkbox">...<span
+ * class="slider"></span></label>` structure styles.css's `.switch` rules
+ * expect, so every call site swaps a hand-rolled checkbox for one call here
+ * instead of repeating the three-element structure. Not for a list of many
+ * checkboxes to select from (bulk tag selection, etc.) -- those stay plain
+ * checkboxes, same as Curodav's own `.switch` is scoped to "app
+ * preferences" only, never a selection list.
+ */
+export function toggleSwitch(
+  checked: boolean,
+  onChange?: (checked: boolean) => void,
+  ariaLabel?: string,
+): { element: HTMLLabelElement; input: HTMLInputElement } {
+  const input = el("input", { type: "checkbox" }) as HTMLInputElement;
+  input.checked = checked;
+  if (ariaLabel) input.setAttribute("aria-label", ariaLabel);
+  if (onChange) input.addEventListener("change", () => onChange(input.checked));
+  const element = el("label", { class: "switch" });
+  element.append(input, el("span", { class: "slider" }));
+  return { element, input };
 }
 
 /**
@@ -169,6 +211,68 @@ export function guard<T extends unknown[]>(fn: (...args: T) => Promise<void>): (
 }
 
 /**
+ * Clears a prior applyFieldErrors() pass — called at the top of every
+ * submit attempt, not just on success, so a fixed field doesn't keep
+ * showing a stale error after a second try.
+ */
+export function clearFieldErrors(container: HTMLElement): void {
+  container.querySelectorAll(".has-error").forEach((node) => node.classList.remove("has-error"));
+  container.querySelectorAll(".field-error").forEach((node) => node.remove());
+}
+
+/**
+ * Marks a 422's per-field errors against the actual input inside
+ * `container` (design-system unification pass, 2026-09-17, shared spec at
+ * /home/peter/Claude/Projects/DESIGN_SYSTEM.md — same pattern as sibling
+ * app Curodav's modal.js::applyFieldErrors). Matches by the error's last
+ * `loc` segment against an input's `name` attribute — the handful of
+ * inputs in entity-form modals that participate in validation (name,
+ * description, url, ...) now carry one for exactly this purpose; nothing
+ * else in this hand-built-DOM app relies on `name` for anything. Returns
+ * the messages that had no matching input, for the caller to still toast.
+ */
+export function applyFieldErrors(container: HTMLElement, error: ApiError): string[] {
+  clearFieldErrors(container);
+  const unmatched: string[] = [];
+  let firstInvalid: HTMLElement | null = null;
+  for (const d of error.fieldErrors) {
+    const fieldName = d.loc.length ? String(d.loc[d.loc.length - 1]) : null;
+    const input = fieldName ? container.querySelector<HTMLElement>(`[name="${CSS.escape(fieldName)}"]`) : null;
+    if (!input) {
+      unmatched.push(fieldName ? `${fieldName}: ${d.msg}` : d.msg);
+      continue;
+    }
+    input.classList.add("has-error");
+    const hint = el("span", { class: "field-error" });
+    hint.textContent = d.msg;
+    input.insertAdjacentElement("afterend", hint);
+    if (!firstInvalid) firstInvalid = input;
+  }
+  firstInvalid?.focus();
+  return unmatched;
+}
+
+/**
+ * Like guard(), but for a modal's primary-action handler specifically: an
+ * ApiError carrying structured field errors gets marked inline via
+ * applyFieldErrors instead of only ever showing a toast with no way to
+ * tell which field is wrong. Anything unmatched (or any non-validation
+ * error) still falls back to the plain toast, unchanged from guard().
+ */
+export function guardForm(container: HTMLElement, fn: () => Promise<void>): () => void {
+  return () => {
+    fn().catch((error: unknown) => {
+      if (error instanceof ApiError && error.fieldErrors.length) {
+        const unmatched = applyFieldErrors(container, error);
+        if (unmatched.length) toast(unmatched.join("; "), "error");
+        return;
+      }
+      toast(error instanceof Error ? error.message : String(error), "error");
+    });
+  };
+}
+
+/**
  * Returns a runner that executes async callbacks one at a time, in call
  * order, no matter how quickly they're triggered.
  *
@@ -197,7 +301,27 @@ export function serialize(): <T>(fn: () => Promise<T>) => Promise<T> {
 
 export interface ModalHandle {
   backdrop: HTMLElement;
+  /** Flex-column wrapper around `header`/`body`/`footer` -- `.modal`'s own
+   * actual flex child. Exists so `.modal`'s base `display:flex` (row
+   * direction, relied on by itemModal.ts's separate img-pane/info-pane
+   * layout) never has to change: this wrapper is additive, not a change to
+   * `.modal` itself. Callers that tear down the default body (itemModal.ts)
+   * need to remove this instead of `body` directly, or an empty wrapper is
+   * left behind squeezing the row layout. */
+  content: HTMLElement;
+  /** Only present when `openModal()` was called with `title` or
+   * `customHeader` -- a plain-title caller gets an auto-built `<h3>` inside;
+   * a `customHeader`-only caller gets an empty div to build its own richer
+   * header into (title + subtitle, etc). Neither flag set -- no header at
+   * all, preserving the old headerless look (confirmDialog, itemModal.ts's
+   * own inline-editable title). */
+  header?: HTMLElement;
   body: HTMLElement;
+  /** Dedicated footer region -- `appendModalActions`/`appendModalCloseButton`
+   * append into this, not `body`, so every modal gets exactly one visually
+   * distinct footer instead of a button row flowing as the last item of an
+   * undifferentiated body. */
+  footer: HTMLElement;
   close: () => void;
 }
 
@@ -208,13 +332,25 @@ export interface ModalHandle {
  * resources (the crop modal destroys its Cropper instance there, which
  * otherwise leaks a canvas and its event listeners on every open).
  */
+let modalIdSeq = 0;
+
 export function openModal(options: {
   className?: string;
   maxWidth?: string;
+  /** Builds a real `.modal-header` containing an `<h3>` with this text --
+   * the Curodav-style header/body/footer structure (design-system
+   * unification pass, 2026-09-19). Sets aria-labelledby directly instead of
+   * relying on the fallback MutationObserver below. */
+  title?: string;
+  /** For a caller that needs a richer header than a single title string
+   * (openDuplicatesModal's title + subtitle hint) -- builds an empty
+   * `.modal-header` div on `modal.header` for the caller to fill in
+   * itself. Ignored if `title` is also given (title's own header covers it). */
+  customHeader?: boolean;
   onClose?: () => void;
 }): ModalHandle {
   const backdrop = el("div", { class: "modal-backdrop active" });
-  const modal = el("div", { class: "modal" });
+  const modal = el("div", { class: "modal", role: "dialog", "aria-modal": "true" });
   if (options.maxWidth) modal.style.maxWidth = options.maxWidth;
 
   const closeBtn = el("button", { class: "close-btn", "aria-label": "Close" }, icon("close"));
@@ -227,10 +363,43 @@ export function openModal(options: {
   // (not the whole sheet) so it doesn't fight scrolling or tapping things
   // inside the body.
   const sheetHandle = el("div", { class: "sheet-handle", "aria-hidden": "true" });
+  // `content` is the actual flex-column child of `.modal` -- see ModalHandle's
+  // own doc comment for why this indirection exists (keeps `.modal`'s base
+  // row-flex, which itemModal.ts's img/info panes rely on, untouched).
+  const content = el("div", { class: "modal-content" });
   const body = el("div", { class: options.className ?? "simple-modal-body" });
-  modal.append(closeBtn, sheetHandle, body);
+  const footer = el("div", { class: "modal-footer" });
+  let header: HTMLElement | undefined;
+  const titleId = `modal-title-${++modalIdSeq}`;
+  if (options.title || options.customHeader) {
+    header = el("div", { class: "modal-header" });
+    if (options.title) {
+      const h3 = el("h3");
+      h3.textContent = options.title;
+      h3.id = titleId;
+      header.append(h3);
+      modal.setAttribute("aria-labelledby", titleId);
+    }
+    content.append(header);
+  }
+  content.append(body, footer);
+  modal.append(closeBtn, sheetHandle, content);
   backdrop.append(modal);
   document.body.append(backdrop);
+  // Fallback for callers that didn't pass `title` (itemModal.ts's own
+  // inline-editable heading, confirmDialog's headerless message) -- watches
+  // for the first <h1>/<h2>/<h3> the caller appends into `body` itself and
+  // wires aria-labelledby to it, the same way every modal worked before the
+  // `title` option existed.
+  const titleObserver = new MutationObserver(() => {
+    const heading = body.querySelector("h1, h2, h3");
+    if (heading) {
+      heading.id = titleId;
+      modal.setAttribute("aria-labelledby", titleId);
+      titleObserver.disconnect();
+    }
+  });
+  if (!header) titleObserver.observe(body, { childList: true });
   // Moves keyboard focus into the modal the instant it opens — otherwise
   // focus stays wherever it was on the page underneath, and Tab from there
   // ignores the modal entirely rather than starting inside it.
@@ -240,6 +409,7 @@ export function openModal(options: {
 
   const close = () => {
     document.removeEventListener("keydown", onKey);
+    titleObserver.disconnect();
     backdrop.remove();
     options.onClose?.();
     // Focus returns to whatever opened the modal rather than resetting to
@@ -346,7 +516,51 @@ export function openModal(options: {
     resetDragState();
   });
 
-  return { backdrop, body, close };
+  return { backdrop, content, header, body, footer, close };
+}
+
+/**
+ * Standard entity-form modal footer (design-system unification pass,
+ * originally 2026-09-17, rebuilt 2026-09-19 to match Curodav's own footer
+ * layout exactly rather than just structurally): Cancel on the left at its
+ * natural width, a spacer, then the optional `secondary` action, then the
+ * primary action on the right -- also at natural width, not stretched to
+ * fill the row the way the previous equal-width pill pair did. `secondary`
+ * (categoryModal/graphRuleModal/linkModal's "Delete X", only rendered when
+ * editing an existing entity) is expected to already carry the `.delete-link`
+ * class (a demoted text-link style, not a full button) rather than being a
+ * peer-weight action next to Cancel/Save -- matches Curodav's own delete
+ * link sitting between the spacer and the primary button.
+ */
+export function appendModalActions(
+  modal: ModalHandle,
+  primary: HTMLButtonElement,
+  secondary?: HTMLElement,
+): HTMLButtonElement {
+  const cancel = el("button", { class: "btn btn-outlined", type: "button" }) as HTMLButtonElement;
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", () => modal.close());
+  modal.footer.append(cancel, el("div", { class: "spacer" }));
+  if (secondary) modal.footer.append(secondary);
+  modal.footer.append(primary);
+  return cancel;
+}
+
+/**
+ * For a modal that applies each change immediately (no distinct "primary"
+ * action separate from just closing) -- `pickBoard`/`openTagsEditorModal`/
+ * `openTagToggleModal`, all footer-less before this pass. `appendModalActions`
+ * doesn't fit these: it always requires a `primary` button and always
+ * synthesizes its own Cancel, which would either force a meaningless fake
+ * primary or produce two buttons where only one dismiss action is wanted.
+ * Right-aligns a single button via the same spacer technique.
+ */
+export function appendModalCloseButton(modal: ModalHandle, label = "Close"): HTMLButtonElement {
+  const button = el("button", { class: "btn btn-outlined", type: "button" }) as HTMLButtonElement;
+  button.textContent = label;
+  button.addEventListener("click", () => modal.close());
+  modal.footer.append(el("div", { class: "spacer" }), button);
+  return button;
 }
 
 export function confirmDialog(message: string, confirmLabel = "Confirm"): Promise<boolean> {
@@ -360,13 +574,12 @@ export function confirmDialog(message: string, confirmLabel = "Confirm"): Promis
     });
     const text = el("p", { class: "hint" });
     text.textContent = message;
-    const row = el("div", { class: "actions" });
-    const cancel = el("button", { class: "btn btn-outlined", style: "flex:1; justify-content:center;" });
+    modal.body.append(text);
+    const cancel = el("button", { class: "btn btn-outlined", type: "button" }) as HTMLButtonElement;
     cancel.textContent = "Cancel";
-    const confirm = el("button", { class: "btn btn-error-tonal", style: "flex:1; justify-content:center;" });
+    const confirm = el("button", { class: "btn btn-error-tonal", type: "button" }) as HTMLButtonElement;
     confirm.textContent = confirmLabel;
-    row.append(cancel, confirm);
-    modal.body.append(text, row);
+    modal.footer.append(cancel, el("div", { class: "spacer" }), confirm);
 
     cancel.addEventListener("click", () => modal.close());
     confirm.addEventListener("click", () => {
@@ -455,8 +668,7 @@ export function readableTextColor(hex: string): string {
  * like everywhere, rather than every tag needing its own colour picked by hand.
  */
 export function tagColor(tag: { id: number; color: string | null; category?: { color: string } | null }): string {
-  const palette = ["#457b9d", "#2a9d8f", "#6d597a", "#e9c46a", "#b56576", "#588157", "#219ebc", "#d62828"];
-  return tag.color || tag.category?.color || palette[tag.id % palette.length];
+  return tag.color || tag.category?.color || TAG_PALETTE[tag.id % TAG_PALETTE.length];
 }
 
 /**
@@ -487,56 +699,3 @@ export function appendTagLabel(
   container.append(document.createTextNode(tag.name));
 }
 
-/**
- * A grid of icon buttons with at most one active at a time — the picker UI
- * shared by link pills, tag categories and tags (see `DECORATIVE_ICON_KEYS`
- * in icons.ts). With `allowNone`, a leading "—" button clears the selection
- * back to null — links always carry an icon, but a tag or category's icon is
- * optional, and needs a way to say "none" rather than only "pick one".
- */
-export function buildIconPicker(
-  keys: readonly string[],
-  initial: string | null | undefined,
-  options: { allowNone?: boolean; onPick?: (key: string | null) => void } = {},
-): { element: HTMLElement; get: () => string | null; set: (key: string | null) => void } {
-  const picker = el("div", { class: "icon-picker" });
-  let chosen: string | null = initial ?? null;
-
-  const paint = () => {
-    picker.querySelectorAll<HTMLButtonElement>("button").forEach((button) => {
-      button.classList.toggle("selected", (button.dataset.key ?? null) === chosen);
-    });
-  };
-
-  if (options.allowNone) {
-    const noneBtn = el(
-      "button",
-      { type: "button", title: "No icon", "aria-label": "No icon", class: "icon-picker-none" },
-      "—",
-    );
-    noneBtn.addEventListener("click", () => {
-      chosen = null;
-      paint();
-      options.onPick?.(chosen);
-    });
-    picker.append(noneBtn);
-  }
-  for (const key of keys) {
-    const button = el("button", { type: "button", title: key, "data-key": key }, icon(key, true));
-    button.addEventListener("click", () => {
-      chosen = key;
-      paint();
-      options.onPick?.(chosen);
-    });
-    picker.append(button);
-  }
-  paint();
-  return {
-    element: picker,
-    get: () => chosen,
-    set: (key) => {
-      chosen = key;
-      paint();
-    },
-  };
-}

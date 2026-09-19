@@ -12,6 +12,7 @@
 
 import { api } from "../api";
 import { icon } from "../icons";
+import { createSelect, type CustomSelect } from "./select";
 import { store } from "../store";
 import type { SortKey, TagSuggestion } from "../types";
 import { el } from "../ui";
@@ -79,7 +80,7 @@ export class SearchBar {
   /** Guards against an older suggestion response overwriting a newer one. */
   private suggestRequest = 0;
   private sort: SortKey;
-  private readonly sortSelect: HTMLSelectElement;
+  private readonly sortSelect: CustomSelect;
 
   constructor(private readonly options: SearchBarOptions) {
     this.sort = options.initialSort ?? "added_at";
@@ -93,21 +94,19 @@ export class SearchBar {
     const inputWrap = el("div", { class: "search-input-wrap" }, icon("search", true));
     inputWrap.append(this.input);
 
-    const sortSelect = el("select") as HTMLSelectElement;
-    for (const [value, label] of Object.entries(SORT_LABELS)) {
-      const option = el("option", { value }) as HTMLOptionElement;
-      option.textContent = label;
-      sortSelect.append(option);
-    }
-    sortSelect.value = this.sort;
-    sortSelect.addEventListener("change", () => {
-      this.sort = sortSelect.value as SortKey;
-      this.emit();
-    });
+    const sortSelect = createSelect(
+      Object.entries(SORT_LABELS).map(([value, label]) => ({ value, label })),
+      this.sort,
+      (value) => {
+        this.sort = value as SortKey;
+        this.emit();
+      },
+      { ariaLabel: "Sort" },
+    );
     this.sortSelect = sortSelect;
 
     const row = el("div", { class: "search-row" });
-    row.append(inputWrap, sortSelect);
+    row.append(inputWrap, sortSelect.element);
 
     this.tagFilter = el("input", {
       type: "text",
@@ -201,7 +200,7 @@ export class SearchBar {
    * `onChange`; the caller decides when to reload. */
   setSort(sort: SortKey): void {
     this.sort = sort;
-    this.sortSelect.value = sort;
+    this.sortSelect.setValue(sort);
   }
 
   private emit(): void {

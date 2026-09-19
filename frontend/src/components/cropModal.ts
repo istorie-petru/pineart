@@ -19,7 +19,8 @@ import "cropperjs/dist/cropper.css";
 import { api } from "../api";
 import { store } from "../store";
 import type { CropTarget, Item } from "../types";
-import { el, guard, openModal } from "../ui";
+import { createSelect } from "./select";
+import { appendModalActions, el, guard, openModal, toggleSwitch } from "../ui";
 
 const PRESETS: Record<CropTarget, { title: string; aspect: number; round: boolean }> = {
   avatar: { title: "Crop for avatar", aspect: 1, round: true },
@@ -54,11 +55,9 @@ export function openCropModal(options: CropModalOptions): void {
   const modal = openModal({
     className: "crop-modal-body",
     maxWidth: "560px",
+    title: preset ? preset.title : "Crop / resize",
     onClose: () => cropper?.destroy(),
   });
-
-  const heading = el("h3");
-  heading.textContent = preset ? preset.title : "Crop / resize";
 
   // `.crop-round` turns Cropper's crop box and its shaded surround into a
   // circle, so the avatar preview shows the shape the avatar will actually be
@@ -74,12 +73,8 @@ export function openCropModal(options: CropModalOptions): void {
   const image = el("img", { src: options.item.urls.display, alt: "" }) as HTMLImageElement;
   stage.append(image);
 
-  const buttons = el("div", { class: "actions" });
-  const cancel = el("button", { class: "btn btn-outlined", style: "flex:1; justify-content:center;" });
-  cancel.textContent = "Cancel";
-  const apply = el("button", { class: "btn btn-filled", style: "flex:1; justify-content:center;" }) as HTMLButtonElement;
+  const apply = el("button", { class: "btn btn-filled" }) as HTMLButtonElement;
   apply.textContent = "Apply crop";
-  buttons.append(cancel, apply);
 
   const hint = el("p", { class: "hint", style: "margin-top:12px;" });
   hint.textContent = preset
@@ -90,17 +85,9 @@ export function openCropModal(options: CropModalOptions): void {
   // Cropper's own `aspectRatio` option, so offering a second control that could
   // fight it would just be confusing; this row stays hidden whenever `preset`
   // is set.
-  const ratioRow = el("div", { style: "display:flex; gap:8px; align-items:center; margin-top:12px;" });
+  const ratioRow = el("div", { class: "field-row", style: "margin-top:12px;" });
   const ratioLabel = el("label", { class: "hint" });
   ratioLabel.textContent = "Ratio";
-  const ratioSelect = el("select") as HTMLSelectElement;
-  for (const choice of RATIO_CHOICES) {
-    const opt = el("option", { value: choice.value }) as HTMLOptionElement;
-    opt.textContent = choice.label;
-    ratioSelect.append(opt);
-  }
-  ratioRow.append(ratioLabel, ratioSelect);
-  ratioRow.hidden = !!preset;
   // Remembers the last freeform ratio picked across crops in this browser —
   // re-selecting "16:9" every single time you crop a batch of screenshots is
   // exactly the repeat friction "remember last-used context" exists to
@@ -111,12 +98,13 @@ export function openCropModal(options: CropModalOptions): void {
     !preset && store.lastCropAspect && RATIO_CHOICES.some((c) => c.value === store.lastCropAspect)
       ? store.lastCropAspect
       : "";
-  if (rememberedAspect) ratioSelect.value = rememberedAspect;
-  ratioSelect.addEventListener("change", () => {
-    const ratio = ratioSelect.value ? Number(ratioSelect.value) : NaN;
+  const ratioSelect = createSelect(RATIO_CHOICES, rememberedAspect, (value) => {
+    const ratio = value ? Number(value) : NaN;
     cropper?.setAspectRatio(ratio);
-    store.lastCropAspect = ratioSelect.value;
-  });
+    store.lastCropAspect = value;
+  }, { ariaLabel: "Ratio" });
+  ratioRow.append(ratioLabel, ratioSelect.element);
+  ratioRow.hidden = !!preset;
 
   // Zoom buttons — a slower, more precise alternative to the scroll/pinch
   // gesture the hint mentions, useful for getting a very clean cut without a
@@ -134,13 +122,15 @@ export function openCropModal(options: CropModalOptions): void {
 
   // Freeform crops join the artwork's versions rather than becoming a separate
   // card, so the only question left is which one to display.
-  const canonicalRow = el("label", {
+  // A plain <div>, not a <label> -- it wraps toggleSwitch()'s own
+  // <label class="switch">, and nesting labels is invalid HTML (can
+  // double-toggle the input in some browsers).
+  const canonicalRow = el("div", {
     class: "hint",
     style: "display:flex; gap:8px; align-items:center; margin-top:12px;",
   });
-  const canonicalToggle = el("input", { type: "checkbox" }) as HTMLInputElement;
-  canonicalToggle.checked = true;
-  canonicalRow.append(canonicalToggle, document.createTextNode("Show this crop as the artwork's image"));
+  const canonicalToggle = toggleSwitch(true, undefined, "Show this crop as the artwork's image");
+  canonicalRow.append(canonicalToggle.element, document.createTextNode("Show this crop as the artwork's image"));
   if (preset) canonicalRow.hidden = true;
 
   // Resize control — the other half of "crop / resize" (§6.4). Offered for every
@@ -151,9 +141,10 @@ export function openCropModal(options: CropModalOptions): void {
   const resizeBlock = el("div", { style: "margin-top:14px;" });
   const resizeLabel = el("label");
   const resizeInput = el("input", { type: "range", style: "width:100%;" }) as HTMLInputElement;
-  const resizeToggle = el("label", { class: "hint", style: "display:flex; gap:8px; align-items:center;" });
-  const resizeCheckbox = el("input", { type: "checkbox" }) as HTMLInputElement;
-  resizeToggle.append(resizeCheckbox, document.createTextNode("Also resize the result"));
+  const resizeToggle = el("div", { class: "hint", style: "display:flex; gap:8px; align-items:center;" });
+  const resizeSwitch = toggleSwitch(false, undefined, "Also resize the result");
+  const resizeCheckbox = resizeSwitch.input;
+  resizeToggle.append(resizeSwitch.element, document.createTextNode("Also resize the result"));
   resizeBlock.append(resizeToggle, resizeLabel, resizeInput);
   resizeLabel.hidden = resizeInput.hidden = true;
 
@@ -180,9 +171,8 @@ export function openCropModal(options: CropModalOptions): void {
   });
   resizeInput.addEventListener("input", syncResizeLabel);
 
-  modal.body.append(heading, stage, hint, ratioRow, zoomRow, canonicalRow, resizeBlock, buttons);
-
-  cancel.addEventListener("click", () => modal.close());
+  modal.body.append(stage, hint, ratioRow, zoomRow, canonicalRow, resizeBlock);
+  appendModalActions(modal, apply);
 
   image.addEventListener("load", () => {
     cropper = new Cropper(image, {
@@ -214,7 +204,7 @@ export function openCropModal(options: CropModalOptions): void {
           target: options.target,
           ...(options.boardId ? { board_id: options.boardId } : {}),
           ...(resizeCheckbox.checked ? { output_width: Number(resizeInput.value) } : {}),
-          ...(preset ? {} : { make_canonical: canonicalToggle.checked }),
+          ...(preset ? {} : { make_canonical: canonicalToggle.input.checked }),
         });
         options.onDone(derived);
         modal.close();

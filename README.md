@@ -129,6 +129,18 @@ automatically — the site never goes down mid-upgrade. It also takes an
 online `sqlite3 .backup` of `db.sqlite3` before every migration, since a
 code rollback alone can't undo a bad one.
 
+`artboard-ctl` at a glance:
+
+| Command | What it does |
+|---|---|
+| `install [--discovery]` | First install: system user, `/srv/artboard` layout, both systemd units, builds and starts the first release. `--discovery` also sets up SearXNG natively (see below); safe to add later by running it again. |
+| `update` | Deploys the latest `main`: backs up the database, migrates, atomic symlink swap, health-checks both services, auto-rolls-back on failure. |
+| `revert` | Swaps `current` back to `previous` locally, restarts both services, health-checks — a manual escape hatch independent of `update`'s own auto-rollback. |
+| `set-hostname <hostname>` | Allows a public hostname through `vite preview`'s Host-header check — needed once, the first time this sits behind a real reverse proxy/tunnel. |
+| `set-password` | Sets/resets the login password directly, no setup token needed. |
+| `show-setup-token` | Restarts the backend and surfaces a fresh one-time claim token, for the normal setup-page flow instead. |
+| `remove` | Tears down both services, the system user(s), and `/srv/artboard` entirely — destructive, confirms first. |
+
 #### First install (fresh host)
 
 SSH into the server, then:
@@ -188,6 +200,23 @@ health-checks them over HTTP. If either health check fails, it swaps
 non-zero — the bad release never stays live. Releases beyond the last 5 are
 pruned automatically. Config in `shared/.env` and data in `shared/data/`
 live outside every release directory, so neither is touched by a swap.
+
+#### Reverting a bad deploy
+
+```bash
+sudo artboard-ctl revert
+```
+
+For when something's wrong that `update`'s own auto-rollback didn't catch
+(a health check that passes but the app still misbehaves, say). Points
+`current` back at whatever `previous` currently is, restarts both
+services, and health-checks them the same way `update` does. One-way, not
+a redo stack — running it twice in a row doesn't "revert the revert," it
+just re-points `current` at the same release again. Does **not** undo a
+database migration that already ran; if the migration itself is the
+problem, restore the pre-migration backup `update` took
+(`sqlite3 /srv/artboard/shared/backups/db-pre-migration-<timestamp>.sqlite3`)
+by hand.
 
 #### Continuous deployment
 

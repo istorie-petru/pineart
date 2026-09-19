@@ -123,8 +123,12 @@ def board_out(db: Session, board: Board) -> BoardOut:
         slug=board.slug,
         description=board.description,
         cover_item_id=board.cover_item_id,
+        # /file/hero, not /file/display (2026-09-18) -- a board cover crop
+        # gets the same higher quality/size hero derivative as the profile
+        # avatar/banner (images.py's HERO_TARGET_SUFFIXES), for the same
+        # reason: one cover per board, not thousands of grid items.
         cover_url=(
-            f"/api/items/{board.cover_item_id}/file/display" if board.cover_item_id else None
+            f"/api/items/{board.cover_item_id}/file/hero" if board.cover_item_id else None
         ),
         is_dynamic=board.is_dynamic,
         created_at=board.created_at,

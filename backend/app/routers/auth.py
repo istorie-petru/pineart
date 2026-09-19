@@ -53,6 +53,13 @@ def _set_cookie(response: Response, token: str) -> None:
 
 @router.get("/status", response_model=AuthStatus)
 def status(request: Request, db: Session = Depends(get_db)) -> AuthStatus:
+    # dev-only skip-auth (Config.dev_skip_auth's own comment): report
+    # authenticated unconditionally so the frontend goes straight into the
+    # app instead of showing a login/setup screen it would then have no real
+    # session to satisfy -- `require_session`'s own bypass makes every other
+    # route work regardless, this just keeps the UI consistent with that.
+    if get_config().auth_bypassed:
+        return AuthStatus(authenticated=True, setup_required=False)
     session = auth.resolve_session(db, request.cookies.get(auth.SESSION_COOKIE))
     return AuthStatus(authenticated=session is not None, setup_required=not auth.has_password(db))
 

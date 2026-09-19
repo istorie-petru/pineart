@@ -13,6 +13,7 @@
 #
 # Day to day, once installed:
 #   sudo artboard-ctl update                    # deploy latest main, atomic swap, auto-rollback
+#   sudo artboard-ctl revert                    # swap current -> previous locally, restart, health-check
 #   sudo artboard-ctl set-hostname <hostname>   # allow a public hostname through vite preview's Host check
 #   sudo artboard-ctl set-password              # set/reset the login password directly, no token needed
 #   sudo artboard-ctl show-setup-token          # restart + surface a fresh one-time claim token
@@ -965,6 +966,40 @@ cmd_update() {
   fi
 }
 
+cmd_revert() {
+  require_root
+  # Local equivalent of .github/workflows/rollback.yml's remote SSH+symlink
+  # swap (2026-09-18, sibling app Curodav's own curodav-ctl gained the same
+  # command the same day -- keeping the two -ctl scripts' command sets in
+  # sync). Same one-way semantic documented there: this points current at
+  # whatever previous currently resolves to, it doesn't maintain a redo
+  # stack, so a second consecutive run just re-points current at the same
+  # release again, not "undo the revert." Adds one thing the blunt remote
+  # version doesn't have: a real health check afterward (both services),
+  # using the same health_check_backend/health_check_frontend 'update'
+  # already relies on.
+  if [ ! -L "$PREVIOUS_LINK" ]; then
+    err "No ${PREVIOUS_LINK} symlink -- nothing to revert to (only one deploy has happened, or 'remove' was already run)."
+    exit 1
+  fi
+  local target
+  target="$(readlink -f "$PREVIOUS_LINK")"
+  if [ ! -d "$target" ]; then
+    err "${PREVIOUS_LINK} points at ${target}, which no longer exists -- nothing to revert to."
+    exit 1
+  fi
+  log "Reverting current -> $(basename "$target")..."
+  atomic_symlink "$target" "$CURRENT_LINK"
+  systemctl restart "${APP_NAME}.service" "${APP_NAME}-frontend.service"
+  log "Health-checking http://127.0.0.1:${TARGET_PORT}${HEALTH_PATH} and http://127.0.0.1:${FRONTEND_PORT}/ ..."
+  if health_check_backend && health_check_frontend; then
+    log "Reverted to $(basename "$target") and healthy."
+  else
+    err "Reverted, but the health check still failed -- check 'journalctl -u ${APP_NAME} -e' / '-u ${APP_NAME}-frontend -e'."
+    exit 1
+  fi
+}
+
 cmd_set_password() {
   require_root
   if [ ! -x "${CURRENT_LINK}/backend/.venv/bin/python" ]; then
@@ -1075,12 +1110,13 @@ cmd_remove() {
 case "${1:-}" in
   install)          cmd_install "${2:-}" ;;
   update)           cmd_update ;;
+  revert)           cmd_revert ;;
   remove)           cmd_remove ;;
   set-hostname)     cmd_set_hostname "${2:-}" ;;
   set-password)     cmd_set_password ;;
   show-setup-token) cmd_show_setup_token ;;
   *)
-    echo "Usage: artboard-ctl {install [--discovery]|update|remove|set-hostname <hostname>[,...]|set-password|show-setup-token}" >&2
+    echo "Usage: artboard-ctl {install [--discovery]|update|revert|remove|set-hostname <hostname>[,...]|set-password|show-setup-token}" >&2
     exit 2
     ;;
 esac

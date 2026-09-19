@@ -134,22 +134,46 @@ function updateFeedVisibility(): void {
   }
 }
 
+/** Shared between the desktop sidebar (icon-only, markup already in
+ * index.html) and the mobile bottom tab bar (icon + label, built here since
+ * it has no HTML counterpart). */
+// Order matches the sidebar's own top-to-bottom reading (2026-09-19 direct
+// feedback: Feed first with a home icon, Boards second, Discover last) —
+// also drives the mobile bottom tab bar's left-to-right order, so both stay
+// consistent with each other.
+const NAV_ITEMS: [view: string, label: string, iconName: string, sub: string | undefined][] = [
+  ["boards", "Feed", "home", "unorganized"],
+  ["boards", "Boards", "boards", "organized"],
+  ["feed", "Discover", "compass", undefined],
+  ["settings", "Settings", "settings", undefined],
+];
+
 function buildNav(): void {
-  qs("#settingsBtn").innerHTML = icon("settings", true);
+  // Not the `small` (16px) variant here — the sidebar is icon-only, with no
+  // label to share the eye's attention with, so its icons render at the
+  // default size and then get sized up further still by `.sidebar .micon
+  // svg` in styles.css (2026-09-19 feedback: 16px read as too small once
+  // there was nothing else in the button to compare it against).
+  qs("#settingsBtn").innerHTML = icon("settings");
 
   const addImagesBtn = qs("#addImagesBtn");
-  addImagesBtn.innerHTML = `${icon("upload", true)} Add images`;
+  addImagesBtn.innerHTML = icon("upload");
   addImagesBtn.addEventListener("click", (event) => {
     event.stopPropagation();
     toggleAddImagesMenu(addImagesBtn);
   });
 
-  for (const [view, label, iconName, sub] of [
-    ["feed", "Discover", "search", undefined],
-    ["boards", "Feed", "image", "unorganized"],
-    ["boards", "Boards", "boards", "organized"],
-    ["settings", "Settings", "settings", undefined],
-  ] as [string, string, string, string | undefined][]) {
+  // Desktop sidebar buttons are hand-authored in index.html (title/aria-label
+  // included there) and just need their icon filled in here, matched by the
+  // same data-view/data-sub pair the click handler below keys off of.
+  for (const [view, , iconName, sub] of NAV_ITEMS) {
+    if (view === "settings") continue; // settingsBtn's icon is already set above
+    const selector = sub ? `#topNav [data-view="${view}"][data-sub="${sub}"]` : `#topNav [data-view="${view}"]`;
+    const button = document.querySelector<HTMLButtonElement>(selector);
+    if (button) button.innerHTML = icon(iconName);
+  }
+
+  for (const [view, label, iconName, sub] of NAV_ITEMS) {
     const button = el("button", sub ? { "data-view": view, "data-sub": sub } : { "data-view": view });
     button.innerHTML = `${icon(iconName)}<span>${label}</span>`;
     if (view === "feed") button.hidden = true;
@@ -166,9 +190,9 @@ function buildNav(): void {
   });
 }
 
-/** Wires the shared file inputs and drag-and-drop behind the topbar's own
- * "Add images" button (desktop only — the topbar itself is hidden below
- * 640px, per `header.topnav`'s media query in styles.css). */
+/** Wires the shared file inputs and drag-and-drop behind the sidebar's own
+ * "Add images" button (desktop only — the sidebar itself is hidden below
+ * 640px, per `.sidebar`'s media query in styles.css). */
 function setupUploads(): void {
   // Both entry points (picker and drop) go through the same dialog, so tagging
   // and filing behave identically however the images arrived.
@@ -183,6 +207,88 @@ function setupUploads(): void {
 
   initAddImages(handleFiles);
   setupDropTarget(handleFiles);
+}
+
+/**
+ * Swipe left/right to step between the four top-level pages, in the same
+ * order they appear in the sidebar/bottom tab bar: Feed, Boards, Discover,
+ * Settings (2026-09-19 direct request). Mobile only — desktop already has
+ * one-click access to all four in the sidebar, and a mouse drag never fires
+ * `touchstart`/`touchend` in the first place, so this never engages there.
+ *
+ * Modelled on itemModal.ts's own swipe-between-siblings gesture (same
+ * threshold, same "whichever axis moved more wins" rule so a vertical scroll
+ * of the feed never gets mistaken for a page change). Listening on `#app`
+ * rather than `window` means modals/drawers/the sidebar/bottom tab bar —
+ * every one of them a sibling of `#app`, not a descendant — never reach this
+ * handler at all, so a swipe inside the item viewer or a drawer can't also
+ * change the page underneath it. A touch that starts on a form control
+ * (the sort dropdown, a text field, a settings slider) is ignored outright,
+ * so dragging a slider's thumb can't be misread as a page swipe.
+ */
+function setupSwipeNav(): void {
+  // Order mirrors NAV_ITEMS above; a board's own detail page (and anything
+  // else outside these four) isn't part of the carousel and returns -1
+  // below, which leaves it untouched — that's also what keeps this from
+  // fighting the drag-to-reorder grid on a board's own page.
+  const PAGES: router.Route[] = [
+    { view: "boards", sub: "unorganized" },
+    { view: "boards", sub: "organized" },
+    { view: "feed" },
+    { view: "settings", tab: "profile" },
+  ];
+  const pageIndex = (route: router.Route): number => {
+    switch (route.view) {
+      case "boards":
+        return route.sub === "unorganized" ? 0 : 1;
+      case "feed":
+        return 2;
+      case "settings":
+        return 3;
+      default:
+        return -1;
+    }
+  };
+
+  const SWIPE_THRESHOLD = 70;
+  const IGNORE_SELECTOR = "input, textarea, select, .custom-select, .filter-dropdown";
+  let startX = 0;
+  let startY = 0;
+  let tracking = false;
+
+  app.addEventListener(
+    "touchstart",
+    (event) => {
+      tracking = false;
+      if (!authenticated || event.touches.length !== 1 || window.innerWidth > 640) return;
+      if ((event.target as HTMLElement).closest(IGNORE_SELECTOR)) return;
+      startX = event.touches[0].clientX;
+      startY = event.touches[0].clientY;
+      tracking = true;
+    },
+    { passive: true },
+  );
+  app.addEventListener(
+    "touchend",
+    (event) => {
+      if (!tracking) return;
+      tracking = false;
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+      if (Math.abs(dx) <= Math.abs(dy) || Math.abs(dx) < SWIPE_THRESHOLD) return;
+
+      const current = pageIndex(router.current());
+      if (current < 0) return;
+      // Swipe left (dx < 0) advances, same left-means-forward convention
+      // itemModal.ts's own sibling swipe already uses; no wraparound at
+      // either end.
+      const next = current + (dx < 0 ? 1 : -1);
+      if (next >= 0 && next < PAGES.length) router.navigate(PAGES[next]);
+    },
+    { passive: true },
+  );
 }
 
 let chromeBuilt = false;
@@ -288,6 +394,7 @@ async function boot(): Promise<void> {
     installPasteTrimming();
     buildNav();
     setupUploads();
+    setupSwipeNav();
     router.onChange(render);
     setUnauthorizedHandler(showLogin);
     setConnectivityHandler((online) => {

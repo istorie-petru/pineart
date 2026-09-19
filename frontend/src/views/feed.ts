@@ -15,13 +15,14 @@
  */
 
 import { api } from "../api";
+import { createSelect } from "../components/select";
 import { TagInput } from "../components/tagInput";
 import { icon } from "../icons";
 import { layout, observe, type MasonryEntry } from "../masonry";
 import * as router from "../router";
 import { store } from "../store";
 import type { DiscoverResult, Item } from "../types";
-import { el, guard, openModal, toast } from "../ui";
+import { appendModalActions, el, emptyStateMessage, guard, openModal, toast } from "../ui";
 
 const CACHE_KEY = "pineart.discoverCache";
 const MAX_CACHED_SEARCHES = 8;
@@ -82,8 +83,7 @@ export function renderFeed(root: HTMLElement): () => void {
   recentHint.hidden = true;
 
   const grid = el("div", { class: "masonry" });
-  const status = el("p", { class: "empty-msg" });
-  status.textContent = "Type a search to begin.";
+  const status = emptyStateMessage("Type a search to begin.");
 
   section.append(heading, description, row, recentHint, status, grid);
   root.replaceChildren(section);
@@ -296,9 +296,7 @@ function makeResultCard(
  * and a board, applied right after the save so there is never a saved item
  * with no tags in between. */
 function openDetailedAddModal(result: DiscoverResult, onSaved: (item: Item, created: boolean) => void): void {
-  const modal = openModal({ maxWidth: "420px" });
-  const heading = el("h3");
-  heading.textContent = "Add with details";
+  const modal = openModal({ maxWidth: "420px", title: "Add with details" });
 
   const titleLabel = el("label", { style: "display:block;" });
   titleLabel.textContent = "Title";
@@ -311,24 +309,22 @@ function openDetailedAddModal(result: DiscoverResult, onSaved: (item: Item, crea
 
   const boardLabel = el("label", { style: "display:block; margin-top:12px;" });
   boardLabel.textContent = "Board (optional)";
-  const boardSelect = el("select", { style: "width:100%;" }) as HTMLSelectElement;
-  const noneOpt = el("option", { value: "" }) as HTMLOptionElement;
-  noneOpt.textContent = "No board";
-  boardSelect.append(noneOpt);
+  const boardSelect = createSelect([{ value: "", label: "No board" }], "", undefined, { ariaLabel: "Board" });
   void api.listBoards().then((boards) => {
-    for (const board of boards.filter((b) => !b.is_dynamic)) {
-      const opt = el("option", { value: String(board.id) }) as HTMLOptionElement;
-      opt.textContent = board.name;
-      boardSelect.append(opt);
-    }
+    boardSelect.addOptions(
+      boards.filter((b) => !b.is_dynamic).map((board) => ({ value: String(board.id), label: board.name })),
+    );
   });
 
-  const submit = el("button", { class: "btn btn-filled", style: "justify-content:center;" }) as HTMLButtonElement;
+  const submit = el("button", { class: "btn btn-filled" }) as HTMLButtonElement;
   submit.textContent = "Add to collection";
-  const actions = el("div", { class: "actions actions-column" });
-  actions.append(submit);
 
-  modal.body.append(heading, titleLabel, titleInput, tagsLabel, tagInput.element, boardLabel, boardSelect, actions);
+  modal.body.append(titleLabel, titleInput, tagsLabel, tagInput.element, boardLabel, boardSelect.element);
+  // Previously a manual `.actions.actions-column` with just this one button
+  // and no way to back out besides the corner-X/Escape/backdrop -- switching
+  // to the shared footer helper adds a proper Cancel, matching every other
+  // modal (design-system unification pass, 2026-09-19).
+  appendModalActions(modal, submit);
 
   submit.addEventListener(
     "click",
@@ -347,8 +343,8 @@ function openDetailedAddModal(result: DiscoverResult, onSaved: (item: Item, crea
         if (tagNames.length) {
           item = await api.patchItem(item.id, { tags: [...item.tags.map((t) => t.name), ...tagNames] });
         }
-        if (boardSelect.value) {
-          await api.bulk({ item_ids: [item.id], action: "add_to_board", board_id: Number(boardSelect.value) });
+        if (boardSelect.getValue()) {
+          await api.bulk({ item_ids: [item.id], action: "add_to_board", board_id: Number(boardSelect.getValue()) });
         }
         onSaved(item, saved.created);
         modal.close();

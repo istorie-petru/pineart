@@ -1,0 +1,31 @@
+name: Rollback
+
+# Design-system unification pass (2026-09-17): sibling app Curodav has this
+# same manual escape hatch (its own .github/workflows/rollback.yml) and
+# this app didn't -- only artboard-ctl update's own automatic rollback-on-
+# failed-health-check existed here, which doesn't help once a bad release
+# has already passed its health check and been live for a while.
+#
+# Blunt rollback: swaps current -> whatever 'previous' currently points at
+# and restarts both services, with no health-check verification (unlike
+# artboard-ctl update's own auto-rollback). A second consecutive run is a
+# no-op at best, not a redo -- 'previous' isn't updated here, so it just
+# re-points current at the same release again. Use this for "the last
+# deploy broke something, get back to what was running before" -- not for
+# stepping back more than one release.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Roll back to previous release
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            sudo ln -snf /srv/artboard/previous /srv/artboard/current
+            sudo systemctl restart artboard artboard-frontend

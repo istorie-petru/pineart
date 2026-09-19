@@ -11,16 +11,22 @@
  */
 
 import { api } from "../api";
+import { toggleActionMenu } from "../components/actionMenu";
 import { openCategoryModal } from "../components/categoryModal";
+import { createColorPicker } from "../components/colorPicker";
 import { Grid } from "../components/grid";
 import { openGraphRuleModal } from "../components/graphRuleModal";
+import { createIconPicker } from "../components/iconPicker";
 import { openItemModal } from "../components/itemModal";
 import { DEFAULT_GRAPH_FORCES, renderTagGraph, type TagGraphForces, type TagGraphHandle } from "../components/tagGraph";
+import { createSelect } from "../components/select";
+import { openSearchTemplateModal } from "../components/searchTemplateModal";
 import { DECORATIVE_ICON_KEYS, icon } from "../icons";
+import { ACCENT_PRESETS } from "../palette";
 import * as router from "../router";
 import { store } from "../store";
 import type { GraphNode, Item, NearDuplicatePair, SortKey, TagCategory } from "../types";
-import { buildIconPicker, confirmDialog, el, guard, openModal, toast } from "../ui";
+import { appendModalCloseButton, confirmDialog, el, guard, openModal, toast, toggleSwitch } from "../ui";
 
 /** Reads the saved physics preference, falling back to the built-in defaults
  * before settings have loaded or if a key is somehow missing. */
@@ -211,28 +217,27 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
     }
     themeRow.append(themeLabel, radioRow);
 
+    // Accent color (design-system unification pass, originally 2026-09-17,
+    // converted from an always-visible inline swatch row to a click-to-open
+    // dropdown 2026-09-19 per direct request: "I want drop down menus
+    // almost everywhere... the color choser" + "I mostly want the settings
+    // to feel a bit more clean, minimalist and not crowded" -- still the
+    // same fixed 8 presets (see /home/peter/Claude/Projects/DESIGN_SYSTEM.md:
+    // sibling app Curodav offers the same 8, so picking "Teal" gets the same
+    // color family in both apps), just no longer taking up a permanently
+    // visible row of 8 circles in a page that already has a lot on it.
     const accentRow = el("div", { class: "field-row" });
     const accentLabel = el("span");
     accentLabel.textContent = "Accent color";
-    const swatch = el("span", { class: "accent-swatch-btn" });
-    swatch.style.background = settings["appearance.accent_color"];
-    const picker = el("input", { type: "color" }) as HTMLInputElement;
-    picker.value = settings["appearance.accent_color"];
-    // Live preview on every input event, but only one write on `change` — a
-    // colour picker fires input continuously while dragging, and persisting each
-    // frame would be dozens of PUTs per pick.
-    picker.addEventListener("input", () => {
-      document.documentElement.style.setProperty("--color-accent", picker.value);
-      swatch.style.background = picker.value;
-    });
-    picker.addEventListener(
-      "change",
-      guard(async () => {
-        await store.saveSettings({ "appearance.accent_color": picker.value });
+    const accentPicker = createColorPicker(
+      store.settings?.["appearance.accent_color"] ?? ACCENT_PRESETS[0].hex,
+      guard(async (hex) => {
+        await store.saveSettings({ "appearance.accent_color": hex });
       }),
+      "Accent color",
+      { palette: ACCENT_PRESETS.map((preset) => ({ hex: preset.hex, name: preset.name })) },
     );
-    swatch.append(picker);
-    accentRow.append(accentLabel, swatch);
+    accentRow.append(accentLabel, accentPicker.element);
 
     form.append(themeRow, accentRow);
     panel.append(form);
@@ -247,7 +252,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
     const pageRow = el("div", { class: "field-row" });
     const pageLabel = el("span");
     pageLabel.textContent = "Items per page";
-    const pageInput = el("input", { type: "number", min: "1", max: "200", style: "width:70px;" }) as HTMLInputElement;
+    const pageInput = el("input", { type: "number", min: "1", max: "200" }) as HTMLInputElement;
     pageInput.value = String(settings["collection.page_size"]);
     pageInput.addEventListener(
       "change",
@@ -267,26 +272,22 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
     const sortRow = el("div", { class: "field-row" });
     const sortLabel = el("span");
     sortLabel.textContent = "Default sort";
-    const sortSelect = el("select") as HTMLSelectElement;
-    for (const [value, label] of [
-      ["added_at", "Date added"],
-      ["dimensions", "Dimensions"],
-      ["filesize", "File size"],
-      ["title", "Alphabetical"],
-    ] as [SortKey, string][]) {
-      const option = el("option", { value }) as HTMLOptionElement;
-      option.textContent = label;
-      sortSelect.append(option);
-    }
-    sortSelect.value = settings["collection.default_sort"];
-    sortSelect.addEventListener(
-      "change",
-      guard(async () => {
-        await store.saveSettings({ "collection.default_sort": sortSelect.value });
-        toast("Saved");
-      }),
+    const commitSort = guard(async (value: string) => {
+      await store.saveSettings({ "collection.default_sort": value as SortKey });
+      toast("Saved");
+    });
+    const sortSelect = createSelect(
+      [
+        { value: "added_at", label: "Date added" },
+        { value: "dimensions", label: "Dimensions" },
+        { value: "filesize", label: "File size" },
+        { value: "title", label: "Alphabetical" },
+      ],
+      settings["collection.default_sort"],
+      commitSort,
+      { ariaLabel: "Default sort" },
     );
-    sortRow.append(sortLabel, sortSelect);
+    sortRow.append(sortLabel, sortSelect.element);
     browsing.append(pageRow, sortRow, scrollRow);
 
     const storage = el("div", { class: "settings-group" }, "<h4>Storage</h4>");
@@ -301,7 +302,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
     const retentionRow = el("div", { class: "field-row" });
     const retentionLabel = el("span");
     retentionLabel.textContent = "Trash retention (days)";
-    const retentionInput = el("input", { type: "number", min: "0", style: "width:70px;" }) as HTMLInputElement;
+    const retentionInput = el("input", { type: "number", min: "0" }) as HTMLInputElement;
     retentionInput.value = String(settings["storage.trash_retention_days"]);
     retentionInput.addEventListener(
       "change",
@@ -539,34 +540,50 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
     const rulesList = el("div", { class: "sidebar-list" });
     const addRuleBtn = el("button", { class: "btn btn-outlined btn-block" }, `${icon("plus", true)} Add rule`);
 
+    // Name/Category/Link/Merge-into all use the same `.field-col` pattern
+    // already established for the profile Name/Description fields above
+    // (label above, full-width control below) rather than `.field-row`
+    // (label left, control right) -- direct feedback, 2026-09-19: "inputs
+    // and selectors should be the same width". A side-by-side row can't
+    // guarantee that without either overflowing this narrow sidebar (a
+    // fixed width holding its ground next to a label) or letting
+    // flexbox's default shrink behavior compress a short selection
+    // ("Anime") more than a long one ("Character"). Stacked, both controls
+    // are simply 100% of the same row width, which trivially matches
+    // regardless of content or viewport. Color/icon are deliberately
+    // excluded from this -- see the appearance row below.
+
     const editor = el("div");
     editor.hidden = true;
-    const nameRow = el("div", { class: "field-row" });
-    const nameLabel = el("span");
+    const nameRow = el("div", { class: "field-col" });
+    const nameLabel = el("label");
     nameLabel.textContent = "Name";
-    const nameInput = el("input", { type: "text", style: "max-width:170px;" }) as HTMLInputElement;
+    const nameInput = el("input", { type: "text" }) as HTMLInputElement;
     nameRow.append(nameLabel, nameInput);
-    const colorRow = el("div", { class: "field-row" });
-    const colorLabel = el("span");
-    colorLabel.textContent = "Color";
-    const colorInput = el("input", { type: "color" }) as HTMLInputElement;
-    colorRow.append(colorLabel, colorInput);
-    const categoryRow = el("div", { class: "field-row" });
-    const categoryRowLabel = el("span");
+    const categoryRow = el("div", { class: "field-col" });
+    const categoryRowLabel = el("label");
     categoryRowLabel.textContent = "Category";
-    const categorySelect = el("select", { style: "max-width:170px;" }) as HTMLSelectElement;
-    categoryRow.append(categoryRowLabel, categorySelect);
+    // `createSelect`'s onChange has to be supplied at construction time, but
+    // the real handler below needs `selectedTag`/`graph`/`linkRow`, which
+    // aren't assigned yet at this point in the function -- this indirection
+    // (a mutable box, reassigned once the real handler is defined further
+    // down) keeps the code in its original order instead of hoisting a big
+    // block up past everything it depends on.
+    let handleCategoryChange: (value: string) => void = () => {};
+    const categorySelect = createSelect(
+      [{ value: "", label: "— none —" }],
+      "",
+      (value) => handleCategoryChange(value),
+      { ariaLabel: "Category" },
+    );
+    categoryRow.append(categoryRowLabel, categorySelect.element);
     // Only shown for tags whose category opted in — see `links_enabled` on
     // `TagCategory`. Hidden rather than removed, so toggling a tag's category
     // can show or hide it without rebuilding the row.
-    const linkRow = el("div", { class: "field-row" });
-    const linkRowLabel = el("span");
+    const linkRow = el("div", { class: "field-col" });
+    const linkRowLabel = el("label");
     linkRowLabel.textContent = "Link";
-    const linkInput = el("input", {
-      type: "url",
-      placeholder: "https://…",
-      style: "max-width:170px;",
-    }) as HTMLInputElement;
+    const linkInput = el("input", { type: "url", placeholder: "https://…" }) as HTMLInputElement;
     linkRow.append(linkRowLabel, linkInput);
     linkRow.hidden = true;
 
@@ -577,18 +594,52 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
     const hideRow = el("div", { class: "field-row" });
     const hideRowLabel = el("span");
     hideRowLabel.textContent = "Hide from Feed";
-    const hideInput = el("input", { type: "checkbox" }) as HTMLInputElement;
-    hideRow.append(hideRowLabel, hideInput);
+    const hideSwitch = toggleSwitch(false, undefined, "Hide from Feed");
+    const hideInput = hideSwitch.input;
+    hideRow.append(hideRowLabel, hideSwitch.element);
     const hideHint = el("p", { class: "hint", style: "margin-top:-4px;" });
     hideHint.textContent = "Still shows up in boards and in a search that names it directly.";
 
+    // Merge: distinct from rename above — rename changes what this tag is
+    // called, merge collapses this tag and a different one into a single
+    // identity (see advance.md §10, "landscape" / "landscapes"). A plain
+    // <select> of every other tag is enough here; this is a maintenance
+    // action reached rarely enough that a dedicated picker modal would be
+    // more ceremony than the task warrants.
+    const mergeRow = el("div", { class: "field-col", style: "margin-top:10px;" });
+    const mergeRowLabel = el("label");
+    mergeRowLabel.textContent = "Merge into";
+    const mergeSelect = createSelect([], "", undefined, { ariaLabel: "Merge into" });
+    mergeRow.append(mergeRowLabel, mergeSelect.element);
+    const mergeBtn = el("button", {
+      class: "btn btn-outlined btn-block",
+      style: "margin-top:6px;",
+    }, `${icon("merge", true)} Merge tag`);
+
+    // Color + icon last, grouped together -- direct feedback, 2026-09-19:
+    // "color and icons should always be at the end of the list" (appearance
+    // choices, lowest priority relative to identity/classification/behavior
+    // fields above) and "both should have the same design" (matching
+    // rounded-square triggers, not a circle next to a square -- see
+    // `.color-swatch-trigger`'s CSS).
+    const appearanceRow = el("div", { class: "field-grid", style: "margin-top:14px;" });
+    const colorCol = el("div");
+    const colorLabel = el("span", { class: "hint", style: "display:block; margin-bottom:6px;" });
+    colorLabel.textContent = "Color";
+    // Same construction-order indirection as `handleCategoryChange` above --
+    // the real handler needs `selectedTag`/`graph`, not yet assigned here.
+    let handleColorChange: (hex: string) => void = () => {};
+    const colorPicker = createColorPicker("#457b9d", (hex) => handleColorChange(hex), "Color");
+    colorCol.append(colorLabel, colorPicker.element);
+    const iconCol = el("div");
+    const iconColLabel = el("span", { class: "hint", style: "display:block; margin-bottom:6px;" });
+    iconColLabel.textContent = "Icon";
     // A tag's own icon; unset, it falls back to its category's (the category
     // modal sets that default) — same precedence as color.
-    const iconRowLabel = el("span", { class: "hint", style: "display:block; margin-top:10px;" });
-    iconRowLabel.textContent = "Icon";
-    const tagIconPicker = buildIconPicker(DECORATIVE_ICON_KEYS, null, {
-      allowNone: true,
-      onPick: guard(async (key) => {
+    const tagIconPicker = createIconPicker(
+      DECORATIVE_ICON_KEYS,
+      null,
+      guard(async (key) => {
         if (!selectedTag) return;
         // Not reflected on the graph node itself — its circle is already
         // carrying color and name; the icon shows up on the tag's chips
@@ -598,44 +649,33 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
         await store.loadTags();
         toast(key ? "Tag icon updated" : "Tag icon cleared");
       }),
-    });
+      { allowNone: true, ariaLabel: "Icon" },
+    );
+    iconCol.append(iconColLabel, tagIconPicker.element);
+    appearanceRow.append(colorCol, iconCol);
 
-    // Merge: distinct from rename above — rename changes what this tag is
-    // called, merge collapses this tag and a different one into a single
-    // identity (see advance.md §10, "landscape" / "landscapes"). A plain
-    // <select> of every other tag is enough here; this is a maintenance
-    // action reached rarely enough that a dedicated picker modal would be
-    // more ceremony than the task warrants.
-    const mergeRow = el("div", { class: "field-row" });
-    const mergeRowLabel = el("span");
-    mergeRowLabel.textContent = "Merge into";
-    const mergeSelect = el("select", { style: "max-width:170px;" }) as HTMLSelectElement;
-    mergeRow.append(mergeRowLabel, mergeSelect);
-    const mergeBtn = el(
-      "button",
-      { class: "btn btn-outlined btn-block", style: "margin-top:6px;" },
-      `${icon("merge", true)} Merge tag`,
-    );
-
-    const viewImages = el(
-      "button",
-      { class: "btn btn-tonal btn-block", style: "margin-top:10px;" },
-      `${icon("search", true)} View images`,
-    );
-    const deleteTagBtn = el(
-      "button",
-      { class: "btn btn-error-tonal btn-block", style: "margin-top:10px;" },
-      `${icon("trash", true)} Delete tag`,
-    );
+    const viewImages = el("button", {
+      class: "btn btn-tonal btn-block",
+      style: "margin-top:14px;",
+    }, `${icon("search", true)} View images`);
+    const deleteTagBtn = el("button", {
+      class: "btn btn-error-tonal btn-block",
+      style: "margin-top:10px;",
+    }, `${icon("trash", true)} Delete tag`);
     editor.append(
+      // Identity, classification, behavior — the descriptive fields.
       nameRow,
-      colorRow,
       categoryRow,
       linkRow,
       hideRow,
       hideHint,
-      iconRowLabel,
-      tagIconPicker.element,
+      // Appearance (color + icon) is the true last field, per the
+      // "color and icons should always be at the end of the list" rule.
+      appearanceRow,
+      // Actions below this point, not fields — merge-into stays paired
+      // with its own Merge button rather than separated by appearanceRow,
+      // the same "pick a target, act on it immediately below" pattern as
+      // View images/Delete tag.
       mergeRow,
       mergeBtn,
       viewImages,
@@ -789,16 +829,13 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
     }
 
     function refreshCategorySelect(currentId: number | null | undefined): void {
-      categorySelect.replaceChildren();
-      const none = el("option", { value: "" }) as HTMLOptionElement;
-      none.textContent = "— none —";
-      categorySelect.append(none);
-      for (const category of categories) {
-        const option = el("option", { value: String(category.id) }) as HTMLOptionElement;
-        option.textContent = category.name;
-        categorySelect.append(option);
-      }
-      categorySelect.value = currentId ? String(currentId) : "";
+      categorySelect.setOptions(
+        [
+          { value: "", label: "— none —" },
+          ...categories.map((category) => ({ value: String(category.id), label: category.name })),
+        ],
+        currentId ? String(currentId) : "",
+      );
     }
 
     async function renderGraphRules(): Promise<void> {
@@ -903,20 +940,18 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
       // whichever tab happened to be open.
       activateSidebarTab("edit");
       nameInput.value = node.name;
-      colorInput.value = node.color ?? "#457b9d";
+      colorPicker.setValue(node.color ?? "#457b9d");
       refreshCategorySelect(node.category?.id ?? null);
       linkRow.hidden = !node.category?.links_enabled;
       linkInput.value = node.link_url ?? "";
       hideInput.checked = node.hide_from_feed ?? false;
       tagIconPicker.set(node.icon ?? null);
 
-      mergeSelect.replaceChildren();
-      for (const other of store.tags) {
-        if (other.id === node.id) continue;
-        const option = el("option", { value: String(other.id) }) as HTMLOptionElement;
-        option.textContent = other.name;
-        mergeSelect.append(option);
-      }
+      const mergeTargets = store.tags.filter((other) => other.id !== node.id);
+      mergeSelect.setOptions(
+        mergeTargets.map((other) => ({ value: String(other.id), label: other.name })),
+        mergeTargets[0] ? String(mergeTargets[0].id) : "",
+      );
     };
 
     graph = renderTagGraph(canvas, data, select, graphForcesFromSettings());
@@ -934,33 +969,26 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
         toast("Tag renamed");
       }),
     );
-    colorInput.addEventListener(
-      "change",
-      guard(async () => {
-        if (!selectedTag) return;
-        const updated = await api.patchTag(selectedTag.id, { color: colorInput.value });
-        graph?.updateNode(selectedTag.id, { color: updated.color ?? undefined });
-        selectedTag.color = updated.color;
-        await store.loadTags();
-        toast("Tag color updated");
-      }),
-    );
-    categorySelect.addEventListener(
-      "change",
-      guard(async () => {
-        if (!selectedTag) return;
-        const value = categorySelect.value;
-        const updated = await api.patchTag(
-          selectedTag.id,
-          value ? { category_id: Number(value) } : { clear_category: true },
-        );
-        graph?.updateNode(selectedTag.id, { color: updated.color, category: updated.category });
-        selectedTag.category = updated.category;
-        linkRow.hidden = !updated.category?.links_enabled;
-        await store.loadTags();
-        toast("Category updated");
-      }),
-    );
+    handleColorChange = guard(async (hex: string) => {
+      if (!selectedTag) return;
+      const updated = await api.patchTag(selectedTag.id, { color: hex });
+      graph?.updateNode(selectedTag.id, { color: updated.color ?? undefined });
+      selectedTag.color = updated.color;
+      await store.loadTags();
+      toast("Tag color updated");
+    });
+    handleCategoryChange = guard(async (value: string) => {
+      if (!selectedTag) return;
+      const updated = await api.patchTag(
+        selectedTag.id,
+        value ? { category_id: Number(value) } : { clear_category: true },
+      );
+      graph?.updateNode(selectedTag.id, { color: updated.color, category: updated.category });
+      selectedTag.category = updated.category;
+      linkRow.hidden = !updated.category?.links_enabled;
+      await store.loadTags();
+      toast("Category updated");
+    });
     linkInput.addEventListener(
       "change",
       guard(async () => {
@@ -993,12 +1021,12 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
       "click",
       guard(async () => {
         if (!selectedTag) return;
-        const targetId = Number(mergeSelect.value);
+        const targetId = Number(mergeSelect.getValue());
         if (!targetId) {
           toast("Add another tag first — there's nothing to merge into yet");
           return;
         }
-        const targetName = mergeSelect.selectedOptions[0]?.textContent ?? "that tag";
+        const targetName = mergeSelect.getLabel() || "that tag";
         const ok = await confirmDialog(
           `Merge "${selectedTag.name}" into "${targetName}"? Every item carrying "${selectedTag.name}" will carry "${targetName}" instead, and "${selectedTag.name}" is deleted. This cannot be undone.`,
           "Merge tag",
@@ -1169,6 +1197,10 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
       navButtons.get(id)!.classList.toggle("active", id === resolved);
       panelEls.get(id)!.classList.toggle("active", id === resolved);
     }
+    // Tags and Trash render their own full-width graph/grid and want the
+    // shell's usual 900px cap lifted; every other (form-style) panel keeps it
+    // so it doesn't float in a wide stretch of empty background.
+    shell.classList.toggle("settings-shell--wide", resolved === "tags" || resolved === "trash");
     void ensureBuilt(resolved);
   }
 
@@ -1225,18 +1257,9 @@ function buildTemplateGroup(): HTMLElement {
   savedLabel.textContent = "Your templates";
   const savedList = el("div", { class: "template-list" });
 
-  const addRow = el("div", { style: "display:flex; gap:8px; margin-top:10px;" });
-  const nameInput = el("input", { type: "text", placeholder: "Name", style: "flex:1;" }) as HTMLInputElement;
-  const templateInput = el("input", {
-    type: "text",
-    placeholder: "{query} artwork",
-    style: "flex:2;",
-  }) as HTMLInputElement;
-  const addBtn = el("button", { class: "btn btn-tonal btn-fixed" });
-  addBtn.textContent = "Save";
-  addRow.append(nameInput, templateInput, addBtn);
+  const addBtn = el("button", { class: "btn btn-outlined btn-block", style: "margin-top:10px;" }, `${icon("plus", true)} Add template`);
 
-  group.append(intro, activeInput, preview, savedLabel, savedList, addRow);
+  group.append(intro, activeInput, preview, savedLabel, savedList, addBtn);
 
   const renderTemplates = guard(async () => {
     const data = await api.discoveryTemplates();
@@ -1286,20 +1309,15 @@ function buildTemplateGroup(): HTMLElement {
       savedList.append(row);
     }
 
-    addBtn.onclick = guard(async () => {
-      const name = nameInput.value.trim();
-      const template = templateInput.value.trim();
-      if (!name || !template) {
-        toast("A template needs a name and a pattern", "error");
-        return;
-      }
-      await store.saveSettings({
-        "discovery.templates": [...data.saved.filter((t) => t.name !== name), { name, template }],
+    addBtn.onclick = () => {
+      openSearchTemplateModal(async (name, template) => {
+        await store.saveSettings({
+          "discovery.templates": [...data.saved.filter((t) => t.name !== name), { name, template }],
+        });
+        await renderTemplates();
+        toast("Template saved");
       });
-      nameInput.value = templateInput.value = "";
-      await renderTemplates();
-      toast("Template saved");
-    });
+    };
   });
 
   void renderTemplates();
@@ -1514,26 +1532,20 @@ async function renderNearDuplicatesInto(container: HTMLElement, toolbarSlot?: HT
 }
 
 function openDuplicatesModal(): void {
-  const modal = openModal({ maxWidth: "640px", className: "duplicates-modal-body" });
+  const modal = openModal({ maxWidth: "640px", className: "duplicates-modal-body", customHeader: true });
 
-  const header = el("div", { class: "duplicates-modal-header" });
   const heading = el("h3");
   heading.textContent = "Check & merge duplicates";
   const subhead = el("p", { class: "hint" });
   subhead.textContent = "Pick which copy to keep for each match below — the rest move to trash.";
-  header.append(heading, subhead);
+  modal.header?.append(heading, subhead);
 
-  const scroll = el("div", { class: "duplicates-modal-scroll" });
   const list = el("div", { class: "sidebar-list" });
-  scroll.append(list);
+  modal.body.append(list);
 
-  const footer = el("div", { class: "duplicates-modal-footer" });
-  const closeBtn = el("button", { class: "btn btn-outlined btn-fixed" }, "Close");
-  closeBtn.addEventListener("click", () => modal.close());
-  footer.append(closeBtn);
+  appendModalCloseButton(modal, "Close");
 
-  modal.body.append(header, scroll, footer);
-  void renderNearDuplicatesInto(list, footer);
+  void renderNearDuplicatesInto(list, modal.footer);
 }
 
 /**
@@ -1542,23 +1554,71 @@ function openDuplicatesModal(): void {
  * exists (the whole collection). Grouped together because all five are
  * maintenance actions reached rarely, not everyday settings.
  */
+/**
+ * One status card in the top row -- icon + title + a "..." menu holding that
+ * card's one action, a muted status line, and a description. Same shape as
+ * sibling app Curodav's own Database/Backup/Sync cards (direct feedback,
+ * 2026-09-19: "make this page more similar to [Curodav's Data & Maintenance
+ * cards]"), though nothing here fabricates a Curodav-only concept (backup
+ * history, sync devices) Pineart has no data for -- each status line reflects
+ * only what's actually true right now (idle/ready, not a fake "healthy").
+ */
+function statusCard(
+  iconName: string,
+  title: string,
+  status: string,
+  desc: string,
+  menuLabel: string,
+  menuIcon: string,
+  onAction: () => void,
+): HTMLElement {
+  const card = el("div", { class: "status-card" });
+  const header = el("div", { class: "status-card-header" });
+  header.append(el("span", { class: "status-card-title" }, `${icon(iconName, true)} ${title}`));
+  const menuBtn = el("button", { class: "icon-btn", "aria-label": `${title} actions` }, icon("kebab", true));
+  menuBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleActionMenu({
+      trigger: menuBtn,
+      ariaLabel: `${title} actions`,
+      sections: [{ items: [{ action: "run", label: menuLabel, icon: menuIcon }] }],
+      onAction,
+    });
+  });
+  header.append(menuBtn);
+  const statusLine = el("p", { class: "status-card-status" }, `<span class="status-dot muted"></span>${status}`);
+  const descLine = el("p", { class: "status-card-desc" });
+  descLine.textContent = desc;
+  card.append(header, statusLine, descLine);
+  return card;
+}
+
+/**
+ * A row inside the danger-zone card below the status grid -- title + description
+ * on the left, the one destructive action on the right, matching Curodav's own
+ * "Restart app" / "Auto-archive..." row shape (label+desc left, control right,
+ * divider between rows) rather than this panel's old flat `.field-row` list.
+ */
+function dangerRow(title: string, desc: string, buttonLabel: string, onClick: () => void): HTMLElement {
+  const row = el("div", { class: "settings-card-row" });
+  const text = el("div");
+  const strong = el("strong");
+  strong.textContent = title;
+  const descEl = el("p", { class: "hint" });
+  descEl.textContent = desc;
+  text.append(strong, descEl);
+  const button = el("button", { class: "btn btn-error-tonal btn-fixed" });
+  button.textContent = buttonLabel;
+  button.addEventListener("click", onClick);
+  row.append(text, button);
+  return row;
+}
+
 function buildDataManagementGroup(): HTMLElement {
   const group = el("div", { class: "settings-group" }, "<h4>Data Management</h4>");
 
-  const exportRow = el("div", { class: "field-row" });
-  const exportLabel = el("span");
-  exportLabel.textContent = "Full export (database + image files)";
-  const exportLink = el("a", { class: "btn btn-tonal btn-fixed", href: api.exportUrl, download: "" });
-  exportLink.innerHTML = `${icon("download", true)} Export`;
-  exportRow.append(exportLabel, exportLink);
-
-  const importRow = el("div", { class: "field-row" });
-  const importLabel = el("span");
-  importLabel.textContent = "Import from an export archive";
   const importInput = el("input", { type: "file", accept: ".zip" }) as HTMLInputElement;
   importInput.hidden = true;
-  const importBtn = el("button", { class: "btn btn-outlined btn-fixed" }, `${icon("upload", true)} Import`);
-  importBtn.addEventListener("click", () => importInput.click());
   importInput.addEventListener(
     "change",
     guard(async () => {
@@ -1572,59 +1632,78 @@ function buildDataManagementGroup(): HTMLElement {
       );
     }),
   );
-  importRow.append(importLabel, importBtn);
 
-  const importHint = el("p", { class: "hint" });
-  importHint.textContent = "Import is keyed on image content — re-importing an archive you already have is a no-op.";
-
-  const dupeRow = el("div", { class: "field-row" });
-  const dupeLabel = el("span");
-  dupeLabel.textContent = "Scan the collection for near-duplicate images";
-  const dupeBtn = el("button", { class: "btn btn-outlined btn-fixed" }, `${icon("scan", true)} Check & merge duplicates`);
-  dupeBtn.addEventListener("click", openDuplicatesModal);
-  dupeRow.append(dupeLabel, dupeBtn);
-
-  const resetRow = el("div", { class: "field-row" });
-  const resetLabel = el("span");
-  resetLabel.textContent = "Untag every item and clear the avatar, banner and every board's cover";
-  const resetBtn = el("button", { class: "btn btn-error-tonal btn-fixed" }, "Reset tags & covers");
-  resetBtn.addEventListener(
-    "click",
-    guard(async () => {
-      const confirmed = await confirmDialog(
-        "Untag every item and clear the avatar, banner and every board's cover? " +
-          "Images, tag/category definitions and boards themselves are not affected. This cannot be undone.",
-        "Reset tags & covers",
-      );
-      if (!confirmed) return;
-      await api.resetTagsAndCovers();
-      await store.loadSettings();
-      toast("Tags and covers reset");
-    }),
+  const cardGrid = el("div", { class: "status-card-grid" });
+  cardGrid.append(
+    statusCard(
+      "download",
+      "Export",
+      "Ready",
+      "Full backup of your database and image files.",
+      "Download export",
+      "download",
+      () => {
+        const link = el("a", { href: api.exportUrl, download: "" }) as HTMLAnchorElement;
+        link.click();
+      },
+    ),
+    statusCard(
+      "upload",
+      "Import",
+      "No import yet",
+      "Import is keyed on image content — re-importing an archive you already have is a no-op.",
+      "Choose archive…",
+      "upload",
+      () => importInput.click(),
+    ),
+    statusCard(
+      "scan",
+      "Duplicates",
+      "Not scanned yet",
+      "Scan the collection for near-duplicate images.",
+      "Check & merge duplicates",
+      "scan",
+      openDuplicatesModal,
+    ),
   );
-  resetRow.append(resetLabel, resetBtn);
 
-  const deleteAllRow = el("div", { class: "field-row" });
-  const deleteAllLabel = el("span");
-  deleteAllLabel.textContent = "Delete every image, board, tag and category — the entire collection";
-  const deleteAllBtn = el("button", { class: "btn btn-error-tonal btn-fixed" }, "Delete all");
-  deleteAllBtn.addEventListener(
-    "click",
-    guard(async () => {
-      const confirmed = await confirmDialog(
-        "Delete the entire collection? Every image file, board, tag and category is permanently removed. " +
-          "This cannot be undone.",
-        "Delete all",
-      );
-      if (!confirmed) return;
-      await api.deleteAllData();
-      await Promise.all([store.loadSettings(), store.loadTags(), store.loadGraph().catch(() => undefined)]);
-      toast("Collection deleted");
-    }),
+  const dangerCard = el("div", { class: "settings-card" });
+  dangerCard.append(
+    dangerRow(
+      "Reset",
+      "Untag every item and clear the avatar, banner and every board's cover. Images, tag/category definitions and boards themselves are not affected. This cannot be undone.",
+      "Reset",
+      guard(async () => {
+        const confirmed = await confirmDialog(
+          "Untag every item and clear the avatar, banner and every board's cover? " +
+            "Images, tag/category definitions and boards themselves are not affected. This cannot be undone.",
+          "Reset",
+        );
+        if (!confirmed) return;
+        await api.resetTagsAndCovers();
+        await store.loadSettings();
+        toast("Tags and covers reset");
+      }),
+    ),
+    dangerRow(
+      "Delete all",
+      "Delete every image, board, tag and category — the entire collection. This cannot be undone.",
+      "Delete all",
+      guard(async () => {
+        const confirmed = await confirmDialog(
+          "Delete the entire collection? Every image file, board, tag and category is permanently removed. " +
+            "This cannot be undone.",
+          "Delete all",
+        );
+        if (!confirmed) return;
+        await api.deleteAllData();
+        await Promise.all([store.loadSettings(), store.loadTags(), store.loadGraph().catch(() => undefined)]);
+        toast("Collection deleted");
+      }),
+    ),
   );
-  deleteAllRow.append(deleteAllLabel, deleteAllBtn);
 
-  group.append(exportRow, importRow, importInput, importHint, dupeRow, resetRow, deleteAllRow);
+  group.append(cardGrid, dangerCard, importInput);
   return group;
 }
 
@@ -1632,15 +1711,10 @@ function toggleRow(label: string, value: boolean, onChange: (value: boolean) => 
   const row = el("div", { class: "field-row" });
   const text = el("span");
   text.textContent = label;
-  const checkbox = el("input", { type: "checkbox" }) as HTMLInputElement;
-  checkbox.checked = value;
-  checkbox.addEventListener(
-    "change",
-    guard(async () => {
-      await onChange(checkbox.checked);
-      toast("Saved");
-    }),
-  );
-  row.append(text, checkbox);
+  const commit = guard(async (checked: boolean) => {
+    await onChange(checked);
+    toast("Saved");
+  });
+  row.append(text, toggleSwitch(value, commit, label).element);
   return row;
 }

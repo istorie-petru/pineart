@@ -2,27 +2,30 @@
 
 import { api } from "../api";
 import { store } from "../store";
-import { el, guard, openModal, toast } from "../ui";
+import { createSelect } from "./select";
+import { appendModalActions, el, guardForm, openModal, toast, toggleSwitch } from "../ui";
 
 export function openBoardCreateModal(onCreated: () => void): void {
-  const modal = openModal({ maxWidth: "420px" });
-
-  const heading = el("h3");
-  heading.textContent = "New board";
+  const modal = openModal({ maxWidth: "420px", title: "New board" });
 
   const nameLabel = el("label");
   nameLabel.textContent = "Name";
-  const nameInput = el("input", { type: "text", placeholder: "e.g. Studies & Palettes" }) as HTMLInputElement;
+  const nameInput = el("input", {
+    type: "text",
+    name: "name",
+    placeholder: "e.g. Studies & Palettes",
+  }) as HTMLInputElement;
 
   const descLabel = el("label");
   descLabel.textContent = "Description";
-  const descInput = el("textarea", { rows: "2" }) as HTMLTextAreaElement;
+  const descInput = el("textarea", { name: "description", rows: "2" }) as HTMLTextAreaElement;
 
   const dynamicRow = el("div", { class: "field-row", style: "margin-top:14px;" });
   const dynamicLabel = el("span");
   dynamicLabel.textContent = "Saved-search board";
-  const dynamicToggle = el("input", { type: "checkbox" }) as HTMLInputElement;
-  dynamicRow.append(dynamicLabel, dynamicToggle);
+  const dynamicSwitch = toggleSwitch(false, undefined, "Saved-search board");
+  const dynamicToggle = dynamicSwitch.input;
+  dynamicRow.append(dynamicLabel, dynamicSwitch.element);
 
   const dynamicHint = el("p", { class: "hint" });
   dynamicHint.textContent =
@@ -32,40 +35,29 @@ export function openBoardCreateModal(onCreated: () => void): void {
   queryBlock.hidden = true;
   const modeLabel = el("label");
   modeLabel.textContent = "Match";
-  const modeSelect = el("select") as HTMLSelectElement;
-  for (const [value, label] of [
-    ["any", "Any of these tags (OR)"],
-    ["all", "All of these tags (AND)"],
-  ]) {
-    const option = el("option", { value }) as HTMLOptionElement;
-    option.textContent = label;
-    modeSelect.append(option);
-  }
+  const modeSelect = createSelect(
+    [
+      { value: "any", label: "Any of these tags (OR)" },
+      { value: "all", label: "All of these tags (AND)" },
+    ],
+    "any",
+    undefined,
+    { ariaLabel: "Match" },
+  );
   const tagsLabel = el("label");
   tagsLabel.textContent = "Tags";
   const tagList = el("div", { class: "checkbox-list" });
-  queryBlock.append(modeLabel, modeSelect, tagsLabel, tagList);
+  queryBlock.append(modeLabel, modeSelect.element, tagsLabel, tagList);
 
   dynamicToggle.addEventListener("change", () => {
     queryBlock.hidden = !dynamicToggle.checked;
   });
 
-  const create = el("button", { class: "btn btn-filled", style: "justify-content:center;" }) as HTMLButtonElement;
+  const create = el("button", { class: "btn btn-filled" }) as HTMLButtonElement;
   create.textContent = "Create board";
-  const actions = el("div", { class: "actions actions-column" });
-  actions.append(create);
 
-  modal.body.append(
-    heading,
-    nameLabel,
-    nameInput,
-    descLabel,
-    descInput,
-    dynamicRow,
-    dynamicHint,
-    queryBlock,
-    actions,
-  );
+  modal.body.append(nameLabel, nameInput, descLabel, descInput, dynamicRow, dynamicHint, queryBlock);
+  appendModalActions(modal, create);
   nameInput.focus();
 
   void store.loadTags().then(() => {
@@ -85,14 +77,13 @@ export function openBoardCreateModal(onCreated: () => void): void {
 
   create.addEventListener(
     "click",
-    guard(async () => {
+    guardForm(modal.body, async () => {
       const name = nameInput.value.trim();
       if (!name) {
         toast("A board needs a name", "error");
         return;
       }
       const isDynamic = dynamicToggle.checked;
-      const matchMode = modeSelect.value as "all" | "any";
       const tagIds = Array.from(
         tagList.querySelectorAll<HTMLInputElement>("input:checked"),
         (input) => Number(input.value),
@@ -108,7 +99,9 @@ export function openBoardCreateModal(onCreated: () => void): void {
           name,
           description: descInput.value.trim() || null,
           is_dynamic: isDynamic,
-          query_tags: isDynamic ? tagIds.map((id) => ({ tag_id: id, match_mode: matchMode })) : [],
+          query_tags: isDynamic
+            ? tagIds.map((id) => ({ tag_id: id, match_mode: modeSelect.getValue() as "all" | "any" }))
+            : [],
         });
         modal.close();
         onCreated();

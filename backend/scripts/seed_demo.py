@@ -142,7 +142,6 @@ def main() -> int:
             "query_tags": [{"tag_id": tags["landscape"], "match_mode": "any"}],
         },
     )
-    api("/api/tags/relations", "POST", {"tag_a_id": tags["impressionism"], "tag_b_id": tags["oil-painting"]})
     api("/api/links", "POST", {"title": "ArtStation", "url": "https://artstation.com", "icon": "palette"})
     api("/api/links", "POST", {"title": "Rijksstudio", "url": "https://rijksmuseum.nl", "icon": "image"})
 

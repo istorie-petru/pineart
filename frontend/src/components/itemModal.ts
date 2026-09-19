@@ -307,7 +307,11 @@ export function openItemModal(item: Item, options: ItemModalOptions): void {
   modal.backdrop.classList.add("item-modal-backdrop");
   const imgPane = el("div", { class: "img-pane" });
   const infoPane = el("div", { class: "info-pane" });
-  modal.body.remove();
+  // Removes the whole header/body/footer wrapper, not just `body` -- an
+  // empty wrapper left attached would still take up a flex slot in
+  // `.modal`'s row layout, squeezing imgPane/infoPane unexpectedly (see
+  // ModalHandle's own doc comment in ui.ts).
+  modal.content.remove();
   modal.backdrop.querySelector(".modal")?.classList.add("item-modal");
   modal.backdrop.querySelector(".modal")?.append(imgPane, infoPane);
 

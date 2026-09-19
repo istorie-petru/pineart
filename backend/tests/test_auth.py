@@ -190,3 +190,60 @@ def test_cli_password_reset_is_the_recovery_path(client):
     assert revoked >= 1
     assert client.get("/api/items").status_code == 401
     assert client.post("/api/auth/login", json={"password": "recovered-password"}).status_code == 200
+
+
+class TestDevSkipAuth:
+    """`./run.sh --skip-auth` (2026-09-18, direct request: forgetting a
+    locally-set dev password shouldn't lock you out) -- ARTBOARD_DEV_SKIP_AUTH
+    bypasses require_session/auth.status entirely, but only when
+    ARTBOARD_SECURE_COOKIES is also unset/false (Config.auth_bypassed's own
+    comment: production always sets that to true, so the two would have to be
+    deliberately misconfigured together for this to ever activate somewhere
+    it shouldn't)."""
+
+    def _set_env(self, **env: str) -> None:
+        import os
+
+        from app.config import get_config
+
+        for key, value in env.items():
+            os.environ[key] = value
+        get_config.cache_clear()
+
+    def _clear_env(self, *keys: str) -> None:
+        import os
+
+        from app.config import get_config
+
+        for key in keys:
+            os.environ.pop(key, None)
+        get_config.cache_clear()
+
+    def test_bypasses_the_guard_when_secure_cookies_is_off(self, anon_client):
+        self._set_env(ARTBOARD_DEV_SKIP_AUTH="true")
+        try:
+            assert anon_client.get("/api/auth/status").json() == {
+                "authenticated": True,
+                "setup_required": False,
+            }
+            assert anon_client.get("/api/items").status_code == 200
+        finally:
+            self._clear_env("ARTBOARD_DEV_SKIP_AUTH")
+
+    def test_does_not_apply_when_secure_cookies_is_on(self, anon_client):
+        # The safety net: even with the dev flag set, a config that also
+        # looks like production (ARTBOARD_SECURE_COOKIES=true) keeps the
+        # guard fully enforced.
+        self._set_env(ARTBOARD_DEV_SKIP_AUTH="true", ARTBOARD_SECURE_COOKIES="true")
+        try:
+            assert anon_client.get("/api/items").status_code == 401
+            status = anon_client.get("/api/auth/status").json()
+            assert status == {"authenticated": False, "setup_required": True}
+        finally:
+            self._clear_env("ARTBOARD_DEV_SKIP_AUTH", "ARTBOARD_SECURE_COOKIES")
+
+    def test_off_by_default(self, anon_client):
+        # No env var set at all -- the ordinary, already-covered-elsewhere
+        # case, asserted here too so this class documents the full picture
+        # in one place.
+        assert anon_client.get("/api/items").status_code == 401

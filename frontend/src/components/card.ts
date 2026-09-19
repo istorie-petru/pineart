@@ -3,6 +3,7 @@
 import { icon } from "../icons";
 import type { Item } from "../types";
 import { el } from "../ui";
+import { closeActionMenu, isActionMenuOpenFor, openActionMenu, type ActionMenuItem } from "./actionMenu";
 
 export interface CardMenuAction {
   action: string;
@@ -13,6 +14,11 @@ export interface CardMenuAction {
   /** Draw a horizontal divider above this action, separating it from
    * whatever came before. */
   dividerBefore?: boolean;
+  /** Curodav's own action-menu convention for a destructive action (red text,
+   * red-tinted hover) -- added 2026-09-18, direct report that the migration
+   * onto actionMenu.ts never actually wired this through, so every call
+   * site's "Delete" entry still rendered in the plain muted icon-row color. */
+  danger?: boolean;
 }
 
 export interface CardOptions {
@@ -50,23 +56,6 @@ export interface CardOptions {
    * none today, but nothing enforces it) still degrades sensibly.
    */
   onModifierSelect?: (item: Item, event: { shiftKey: boolean }) => void;
-}
-
-// Registry of currently-open kebab menus' own close functions. A menu is
-// reparented to `document.body` while open (see `openMenu` below) so it can
-// never be clipped by a card's `overflow: hidden` — a masonry card is
-// deliberately clipped for its rounded corners, and for a short, wide pin
-// there is barely any height left below the ⋮ button before hitting that
-// clip, which cut the bottom of the menu off before this. Because the menu
-// moves, closing it is more than a class toggle: this registry is what lets
-// one shared "close everything else" handler close a menu without needing to
-// know where in the DOM it currently lives.
-const openKebabMenus = new Set<() => void>();
-
-function closeAllKebabMenus(except?: () => void): void {
-  for (const close of [...openKebabMenus]) {
-    if (close !== except) close();
-  }
 }
 
 export function makeCard(item: Item, options: CardOptions = {}): HTMLElement {
@@ -127,93 +116,49 @@ export function makeCard(item: Item, options: CardOptions = {}): HTMLElement {
   if (menuActions.length) {
     const wrap = el("div", { class: "kebab-wrap" });
     const button = el("button", { class: "kebab-btn", "aria-label": "More actions" }, icon("kebab", true));
-    const menu = el("div", { class: "kebab-menu" });
+
     // Consecutive icon-only actions share one horizontal row (e.g. Tags / Add
     // to board / Delete below the divider) rather than each getting its own
-    // full-width block row like the text actions above them.
-    let iconRow: HTMLElement | null = null;
-    for (const action of menuActions) {
-      if (action.dividerBefore) {
-        menu.append(el("div", { class: "kebab-divider" }));
-        iconRow = null;
-      }
-      const entry = el(
-        "button",
-        action.icon
-          ? { type: "button", class: "icon-only", title: action.label, "aria-label": action.label }
-          : { type: "button" },
-      );
-      if (action.icon) entry.innerHTML = icon(action.icon, true);
-      else entry.textContent = action.label;
-      entry.addEventListener("click", (event) => {
-        event.stopPropagation();
-        closeMenu();
-        if (action.action === "__bulk_select") toggleSelection();
-        else options.onMenuAction?.(action.action, item);
-      });
-      if (action.icon) {
-        if (!iconRow) {
-          iconRow = el("div", { class: "kebab-icon-row" });
-          menu.append(iconRow);
-        }
-        iconRow.append(entry);
-      } else {
-        iconRow = null;
-        menu.append(entry);
-      }
-    }
+    // full-width block row like the text actions above them -- `iconRow` is
+    // the shared action-menu component's equivalent of this file's old
+    // manual icon-row grouping, kept as a Pineart-only extension there too.
+    const menuItems: ActionMenuItem[] = menuActions.map((action) => ({
+      action: action.action,
+      label: action.label,
+      icon: action.icon,
+      dividerBefore: action.dividerBefore,
+      danger: action.danger,
+      iconRow: Boolean(action.icon),
+    }));
 
-    // Reparented to `document.body` and positioned in fixed coordinates
-    // while open — see the `openKebabMenus` comment above for why a plain
-    // CSS-absolute menu inside the card isn't good enough. `anchor` defaults
-    // to the ⋮ button's own position, but right-click and long-press (below)
-    // pass the cursor/touch point instead, so the same menu also works as a
-    // context menu without needing a second implementation of it.
+    // Uses the shared action-menu component (components/actionMenu.ts, ported
+    // from sibling app Curodav's `.action-menu` -- design-system unification
+    // pass, 2026-09-18) for the portal-to-body/position:fixed/keyboard-nav
+    // plumbing. `anchor` defaults to the ⋮ button's own position, but
+    // right-click and long-press (below) pass the cursor/touch point instead,
+    // so the same menu also works as a context menu without a second
+    // implementation of it.
     const openMenu = (anchor?: { top: number; bottom: number; left: number; right: number }) => {
-      document.body.append(menu);
-      menu.classList.add("open");
       wrap.classList.add("open");
-      // Measure off-screen first: right after appending, the menu is still a
-      // plain `position: static` block in `document.body`'s flow, so it
-      // stretches to the body's full width and `getBoundingClientRect()`
-      // would report that width — not the ~190px the menu actually renders
-      // at — which pushed every menu's left edge to the far left of the page.
-      // Setting `position: fixed` before measuring gives it its real,
-      // shrink-to-fit size.
-      menu.style.position = "fixed";
-      menu.style.top = "-9999px";
-      menu.style.left = "-9999px";
-      const box = anchor ?? button.getBoundingClientRect();
-      const menuBox = menu.getBoundingClientRect();
-      let top = box.bottom + 6;
-      // Flips above the button instead of below when there isn't room —
-      // exactly the "wide, short pin" case: the ⋮ sits close to the bottom
-      // of the viewport more often when the card itself is short.
-      if (top + menuBox.height > window.innerHeight - 8) {
-        top = Math.max(8, box.top - menuBox.height - 6);
-      }
-      const left = Math.max(8, Math.min(box.right - menuBox.width, window.innerWidth - menuBox.width - 8));
-      menu.style.position = "fixed";
-      menu.style.top = `${top}px`;
-      menu.style.left = `${left}px`;
-      menu.style.right = "auto";
-      openKebabMenus.add(closeMenu);
-    };
-    const closeMenu = () => {
-      menu.classList.remove("open");
-      wrap.classList.remove("open");
-      menu.style.position = menu.style.top = menu.style.left = menu.style.right = "";
-      if (menu.parentElement !== wrap) wrap.append(menu);
-      openKebabMenus.delete(closeMenu);
+      openActionMenu({
+        trigger: button,
+        anchor,
+        ariaLabel: "More actions",
+        sections: [{ items: menuItems }],
+        onAction: (action) => {
+          if (action === "__bulk_select") toggleSelection();
+          else options.onMenuAction?.(action, item);
+        },
+        onClose: () => wrap.classList.remove("open"),
+      });
     };
 
     button.addEventListener("click", (event) => {
       event.stopPropagation();
-      const isOpen = menu.classList.contains("open");
-      closeAllKebabMenus();
-      if (!isOpen) openMenu();
+      if (isActionMenuOpenFor(button)) closeActionMenu();
+      else openMenu();
     });
-    wrap.append(button, menu);
+    wrap.append(button);
     card.append(wrap);
 
     // Right-click / long-press: the same menu, opened at the cursor/touch
@@ -221,7 +166,6 @@ export function makeCard(item: Item, options: CardOptions = {}): HTMLElement {
     // already offers, not a second set of actions to maintain.
     card.addEventListener("contextmenu", (event) => {
       event.preventDefault();
-      closeAllKebabMenus();
       const point = { top: event.clientY, bottom: event.clientY, left: event.clientX, right: event.clientX };
       openMenu(point);
     });
@@ -247,7 +191,6 @@ export function makeCard(item: Item, options: CardOptions = {}): HTMLElement {
         pressTimer = setTimeout(() => {
           pressTimer = null;
           if (navigator.vibrate) navigator.vibrate(15);
-          closeAllKebabMenus();
           const point = { top: pressStartY, bottom: pressStartY, left: pressStartX, right: pressStartX };
           openMenu(point);
         }, LONG_PRESS_MS);
@@ -337,15 +280,3 @@ export function makeCard(item: Item, options: CardOptions = {}): HTMLElement {
 
   return card;
 }
-
-// One document-level listener closes any open kebab menu, rather than one
-// listener per card. Checks both `.kebab-wrap` (the trigger button, still in
-// its card) and `.kebab-menu` (reparented to `document.body` while open —
-// see `openKebabMenus` above) since a click has to miss both to count as
-// "outside".
-document.addEventListener("click", (event) => {
-  const target = event.target as HTMLElement;
-  if (!target.closest(".kebab-wrap") && !target.closest(".kebab-menu")) {
-    closeAllKebabMenus();
-  }
-});

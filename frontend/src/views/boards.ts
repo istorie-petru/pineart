@@ -186,7 +186,7 @@ export function renderBoardsView(root: HTMLElement, sub: "unorganized" | "organi
       { action: "banner", label: "Set as banner" },
       { action: "tags", label: "Edit tags", icon: "tag", dividerBefore: true },
       { action: "add_to_board", label: "Add to board", icon: "addBoard" },
-      { action: "delete", label: "Delete photo", icon: "trash" },
+      { action: "delete", label: "Delete photo", icon: "trash", danger: true },
     ],
     // Random isn't a real backend sort key — it's the separate `random` flag.
     // The backend hands back a seeded shuffle whose `next_cursor` carries that
@@ -322,6 +322,66 @@ export function renderBoardsView(root: HTMLElement, sub: "unorganized" | "organi
   const boardsGrid = el("div", { class: "board-grid" });
   organized.append(boardsGrid);
 
+  // Untagged feed: items with zero tags, shown below the board grid so
+  // "things that still need organizing" surface right where you're already
+  // looking to organize. Same card menu as the unorganized Feed grid above
+  // (minus bulk-select, which isn't wired up for this section) so tagging
+  // an item here behaves exactly like it does everywhere else.
+  const untaggedDivider = el("hr", { class: "section-divider" });
+  const untaggedTitle = el("h2", { class: "view-title", style: "margin-top:20px;" }, "Untagged");
+  const untaggedGrid = new Grid({
+    minColumnWidth: 190,
+    infiniteScroll: store.settings?.["collection.infinite_scroll"] !== false,
+    emptyMessage: "No untagged items.",
+    menuActions: [
+      { action: "tags", label: "Edit tags", icon: "tag" },
+      { action: "add_to_board", label: "Add to board", icon: "addBoard" },
+      { action: "delete", label: "Delete photo", icon: "trash", danger: true },
+    ],
+    fetchPage: (cursor) => api.untagged(cursor),
+    onOpen: (item) =>
+      openItemModal(item, { siblings: untaggedGrid.items, onDeleted: (i) => untaggedGrid.removeItem(i.id) }),
+    onMenuAction: (action, item) => {
+      if (action === "add_to_board") {
+        void guard(async () => {
+          const board = await pickBoard({ excludeDynamic: true });
+          if (!board) return;
+          await api.bulk({ item_ids: [item.id], action: "add_to_board", board_id: board.id });
+          toast(`Added to ${board.name}`);
+        })();
+        return;
+      }
+      if (action === "tags") {
+        openTagsEditorModal(item, (updated) => {
+          // Tagging the item removes it from "untagged" — drop it from this
+          // grid immediately rather than waiting for a reload.
+          if (updated.tags.length > 0) untaggedGrid.removeItem(updated.id);
+          else {
+            const index = untaggedGrid.items.findIndex((i) => i.id === updated.id);
+            if (index >= 0) untaggedGrid.items[index] = updated;
+          }
+        });
+        return;
+      }
+      if (action === "delete") {
+        void guard(async () => {
+          if (!(await confirmDialog(`Move "${item.title ?? "this photo"}" to the trash?`, "Move to trash"))) return;
+          await api.deleteItem(item.id);
+          untaggedGrid.removeItem(item.id);
+          toast("Moved to trash", "info", {
+            label: "Undo",
+            onClick: guard(async () => {
+              await api.restoreItem(item.id);
+              void untaggedGrid.reload();
+              toast("Restored");
+            }),
+          });
+        })();
+      }
+    },
+  });
+  organized.append(untaggedDivider, untaggedTitle, untaggedGrid.element);
+
   const renderBoards = guard(async () => {
     const boards = await api.listBoards();
     boardsGrid.replaceChildren();
@@ -361,6 +421,7 @@ export function renderBoardsView(root: HTMLElement, sub: "unorganized" | "organi
   renderProfile();
   void renderLinks();
   void renderBoards();
+  void untaggedGrid.reload().catch((error: unknown) => toast(String(error), "error"));
   // The Feed grid's first load happens through `applySub` below, not here —
   // it always needs the randomized fetch, never the plain paginated one.
 
@@ -372,6 +433,7 @@ export function renderBoardsView(root: HTMLElement, sub: "unorganized" | "organi
     destroy: () => {
       unsubscribe();
       grid.destroy();
+      untaggedGrid.destroy();
     },
   };
 }

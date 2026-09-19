@@ -6,6 +6,8 @@
 #   ./run.sh --prod       build the frontend once and serve that, no dev server
 #   ./run.sh --seed       ... and fill an empty database with demo content
 #   ./run.sh --discovery  ... and start SearXNG so Discovery works
+#   ./run.sh --skip-auth  ... and skip the login/setup screen entirely (plain
+#                          dev mode only -- see below)
 #   ./run.sh --docker     run the Docker Compose stack instead
 #   ./run.sh --shell      open a subshell with the backend venv activated
 #   ./run.sh --test       run the backend test suite and the frontend build
@@ -14,6 +16,15 @@
 # --discovery combines with any run mode: on its own it adds a SearXNG
 # container for the dev/prod servers, and with --docker it enables the Compose
 # `discovery` profile.
+#
+# --skip-auth (2026-09-18, direct request: forgetting a locally-set dev
+# password shouldn't lock you out) only ever applies to the plain, unadorned
+# dev-server mode above -- it is not a recognized flag for --prod or --docker,
+# both of which run this same backend the way a real deploy would. It works by
+# exporting ARTBOARD_DEV_SKIP_AUTH=true for this one invocation only (never
+# written to backend/.env), which the backend additionally refuses to honor
+# unless ARTBOARD_SECURE_COOKIES is also unset/false -- see
+# backend/app/config.py's Config.dev_skip_auth for the full safety story.
 #
 # The default mode runs `vite`, whose dev server pushes a hot-reload update
 # over a websocket on every source change — and since this app registers no
@@ -325,6 +336,7 @@ print_setup_token() {
 run_dev() {
 	local seed="$1"
 	local discovery="$2"
+	local skip_auth="$3"
 
 	port_busy "$API_PORT" && die "Port $API_PORT is already in use. Stop the other process, or set ARTBOARD_API_PORT."
 	port_busy "$WEB_PORT" && die "Port $WEB_PORT is already in use. Stop the other process, or set ARTBOARD_WEB_PORT."
@@ -338,6 +350,15 @@ run_dev() {
 		# is the fallback the app uses; a URL saved in Settings -> Discovery
 		# takes precedence over it.
 		export ARTBOARD_SEARXNG_URL="http://127.0.0.1:$SEARXNG_PORT"
+	fi
+
+	if [ "$skip_auth" = "yes" ]; then
+		# One-shot for this invocation only -- never written to backend/.env.
+		# The backend has its own independent safety net on top of this (see
+		# backend/app/config.py's Config.dev_skip_auth), so this isn't the only
+		# thing standing between this flag and a real deploy, just the first.
+		export ARTBOARD_DEV_SKIP_AUTH=true
+		warn "--skip-auth: the login/setup screen is disabled for this run. Do not use this for anything but a local, throwaway instance."
 	fi
 
 	LOG_FILE="$BACKEND/.dev-backend.log"
@@ -526,27 +547,35 @@ usage() {
 }
 
 main() {
-	local seed="no" discovery="no" mode="dev"
+	local seed="no" discovery="no" mode="dev" skip_auth="no"
 
 	# A loop rather than a single case, because --discovery is a modifier that has
 	# to combine with whichever run mode is also given.
 	while [ $# -gt 0 ]; do
 		case "$1" in
-			--seed)      seed="yes" ;;
-			--discovery) discovery="yes" ;;
-			--prod)      mode="prod" ;;
-			--docker)    mode="docker" ;;
-			--stop)      mode="stop" ;;
-			--test)      mode="test" ;;
-			--shell)     mode="shell" ;;
-			-h|--help)   mode="help" ;;
-			*)           die "Unknown option: $1 (try --help)" ;;
+			--seed)       seed="yes" ;;
+			--discovery)  discovery="yes" ;;
+			--skip-auth)  skip_auth="yes" ;;
+			--prod)       mode="prod" ;;
+			--docker)     mode="docker" ;;
+			--stop)       mode="stop" ;;
+			--test)       mode="test" ;;
+			--shell)      mode="shell" ;;
+			-h|--help)    mode="help" ;;
+			*)            die "Unknown option: $1 (try --help)" ;;
 		esac
 		shift
 	done
 
+	# --skip-auth is deliberately only wired into run_dev below -- --prod and
+	# --docker ignore $skip_auth entirely, both being "run this the way a real
+	# deploy would" modes rather than throwaway dev servers.
+	if [ "$skip_auth" = "yes" ] && [ "$mode" != "dev" ]; then
+		die "--skip-auth only applies to plain dev mode (no --prod/--docker)."
+	fi
+
 	case "$mode" in
-		dev)    run_dev "$seed" "$discovery" ;;
+		dev)    run_dev "$seed" "$discovery" "$skip_auth" ;;
 		prod)   run_prod "$seed" "$discovery" ;;
 		docker) run_docker "$discovery" ;;
 		stop)   run_stop ;;

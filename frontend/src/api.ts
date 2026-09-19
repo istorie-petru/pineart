@@ -31,10 +31,19 @@ import type {
   VersionList,
 } from "./types";
 
+/**
+ * `fieldErrors` (design-system unification pass, 2026-09-17, shared spec at
+ * /home/peter/Claude/Projects/DESIGN_SYSTEM.md) is the raw FastAPI/Pydantic
+ * `detail` array for a 422 — empty for every other kind of error. `message`
+ * above already flattens it to one joined string for the plain toast path;
+ * this keeps the per-field `loc`/`msg` pairs around too, for callers that
+ * want to mark the actual input instead (ui.ts's applyFieldErrors).
+ */
 export class ApiError extends Error {
   constructor(
     override readonly message: string,
     readonly status: number,
+    readonly fieldErrors: { loc: (string | number)[]; msg: string }[] = [],
   ) {
     super(message);
     this.name = "ApiError";
@@ -101,16 +110,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // (for validation errors) a list of per-field objects. Surfacing the real
     // message matters: "422" alone tells the user nothing actionable.
     let detail = `${response.status} ${response.statusText}`;
+    let fieldErrors: { loc: (string | number)[]; msg: string }[] = [];
     try {
       const body = await response.json();
       if (typeof body.detail === "string") detail = body.detail;
       else if (Array.isArray(body.detail) && body.detail.length) {
         detail = body.detail.map((d: { msg?: string }) => d.msg ?? "invalid").join("; ");
+        fieldErrors = body.detail;
       }
     } catch {
       /* non-JSON error body: keep the status line */
     }
-    throw new ApiError(detail, response.status);
+    throw new ApiError(detail, response.status, fieldErrors);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;

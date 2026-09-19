@@ -8,7 +8,8 @@
 
 import { api } from "../api";
 import type { Board } from "../types";
-import { el, formatBytes, guard, openModal, toast } from "../ui";
+import { appendModalActions, el, formatBytes, guard, openModal, toast } from "../ui";
+import { createSelect } from "./select";
 import { TagInput } from "./tagInput";
 
 export interface UploadOutcome {
@@ -25,13 +26,11 @@ export function openUploadDialog(files: File[], onDone: (outcome: UploadOutcome)
   const previewUrls: string[] = [];
   const modal = openModal({
     maxWidth: "460px",
+    title: files.length === 1 ? "Add 1 image" : `Add ${files.length} images`,
     // Object URLs are revoked on close: a folder import can create hundreds, and
     // each one pins its file in memory until released.
     onClose: () => previewUrls.forEach((url) => URL.revokeObjectURL(url)),
   });
-
-  const heading = el("h3");
-  heading.textContent = files.length === 1 ? "Add 1 image" : `Add ${files.length} images`;
 
   const total = files.reduce((sum, file) => sum + file.size, 0);
   const summary = el("p", { class: "hint" });
@@ -65,38 +64,25 @@ export function openUploadDialog(files: File[], onDone: (outcome: UploadOutcome)
 
   const boardLabel = el("label");
   boardLabel.textContent = "Add to board";
-  const boardSelect = el("select") as HTMLSelectElement;
-  const noBoard = el("option", { value: "" }) as HTMLOptionElement;
-  noBoard.textContent = "None";
-  boardSelect.append(noBoard);
+  const boardSelect = createSelect([{ value: "", label: "None" }], "", undefined, { ariaLabel: "Add to board" });
 
-  const actions = el("div", { class: "actions" });
-  const cancel = el("button", { class: "btn btn-outlined", style: "flex:1; justify-content:center;" });
-  cancel.textContent = "Cancel";
-  const confirm = el("button", {
-    class: "btn btn-filled",
-    style: "flex:2; justify-content:center;",
-  }) as HTMLButtonElement;
+  const confirm = el("button", { class: "btn btn-filled" }) as HTMLButtonElement;
   confirm.textContent = "Upload";
-  actions.append(cancel, confirm);
 
   const progress = el("p", { class: "hint", style: "margin-top:10px;" });
   progress.hidden = true;
 
-  modal.body.append(heading, summary, strip, tagLabel, tagInput.element, boardLabel, boardSelect, actions, progress);
+  modal.body.append(summary, strip, tagLabel, tagInput.element, boardLabel, boardSelect.element, progress);
+  const cancel = appendModalActions(modal, confirm);
 
   void api
     .listBoards()
     .then((boards: Board[]) => {
-      for (const board of boards.filter((b) => !b.is_dynamic)) {
-        const option = el("option", { value: String(board.id) }) as HTMLOptionElement;
-        option.textContent = board.name;
-        boardSelect.append(option);
-      }
+      boardSelect.addOptions(
+        boards.filter((b) => !b.is_dynamic).map((board) => ({ value: String(board.id), label: board.name })),
+      );
     })
     .catch(() => undefined);
-
-  cancel.addEventListener("click", () => modal.close());
 
   confirm.addEventListener(
     "click",
@@ -108,7 +94,7 @@ export function openUploadDialog(files: File[], onDone: (outcome: UploadOutcome)
       // Anything typed but not committed as a chip still counts — losing a tag
       // because Enter was never pressed would be a nasty little surprise.
       const tags = [...tagInput.values, tagInput.pending].filter(Boolean);
-      const boardId = boardSelect.value ? Number(boardSelect.value) : undefined;
+      const boardId = boardSelect.getValue() ? Number(boardSelect.getValue()) : undefined;
 
       const outcome: UploadOutcome = { created: 0, duplicates: 0, failed: [] };
       const BATCH = 25;

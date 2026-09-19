@@ -3,37 +3,36 @@
 import { api } from "../api";
 import { DECORATIVE_ICON_KEYS } from "../icons";
 import type { Link } from "../types";
-import { buildIconPicker, confirmDialog, el, guard, openModal, toast } from "../ui";
+import { appendModalActions, confirmDialog, el, guard, guardForm, openModal, toast } from "../ui";
+import { createIconPicker } from "./iconPicker";
 
 export function openLinkModal(link: Link | null, onSaved: () => void): void {
-  const modal = openModal({ className: "link-modal-body", maxWidth: "400px" });
-
-  const heading = el("h3");
-  heading.textContent = link ? "Edit link" : "Add link";
+  const modal = openModal({
+    className: "link-modal-body",
+    maxWidth: "400px",
+    title: link ? "Edit link" : "Add link",
+  });
 
   const nameLabel = el("label");
   nameLabel.textContent = "Name";
-  const nameInput = el("input", { type: "text", placeholder: "e.g. ArtStation" }) as HTMLInputElement;
+  const nameInput = el("input", { type: "text", name: "title", placeholder: "e.g. ArtStation" }) as HTMLInputElement;
   nameInput.value = link?.title ?? "";
 
   const urlLabel = el("label");
   urlLabel.textContent = "URL";
-  const urlInput = el("input", { type: "text", placeholder: "https://…" }) as HTMLInputElement;
+  const urlInput = el("input", { type: "text", name: "url", placeholder: "https://…" }) as HTMLInputElement;
   urlInput.value = link?.url ?? "";
 
   const iconLabel = el("label");
   iconLabel.textContent = "Icon";
-  const iconPicker = buildIconPicker(DECORATIVE_ICON_KEYS, link?.icon ?? "globe");
+  const iconPicker = createIconPicker(DECORATIVE_ICON_KEYS, link?.icon ?? "globe", undefined, { ariaLabel: "Icon" });
 
-  const save = el("button", { class: "btn btn-filled", style: "justify-content:center;" }) as HTMLButtonElement;
+  const save = el("button", { class: "btn btn-filled" }) as HTMLButtonElement;
   save.textContent = "Save";
-  const actions = el("div", { class: "actions actions-column" });
-  actions.append(save);
 
-  modal.body.append(heading, nameLabel, nameInput, urlLabel, urlInput, iconLabel, iconPicker.element, actions);
-
+  let remove: HTMLElement | undefined;
   if (link) {
-    const remove = el("button", { class: "btn btn-error-tonal", style: "justify-content:center;" });
+    remove = el("button", { class: "delete-link", type: "button" });
     remove.textContent = "Delete link";
     remove.addEventListener(
       "click",
@@ -44,12 +43,14 @@ export function openLinkModal(link: Link | null, onSaved: () => void): void {
         onSaved();
       }),
     );
-    actions.append(remove);
   }
+
+  modal.body.append(nameLabel, nameInput, urlLabel, urlInput, iconLabel, iconPicker.element);
+  appendModalActions(modal, save, remove);
 
   save.addEventListener(
     "click",
-    guard(async () => {
+    guardForm(modal.body, async () => {
       const title = nameInput.value.trim();
       let url = urlInput.value.trim();
       if (!title || !url) {

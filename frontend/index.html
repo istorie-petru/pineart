@@ -28,24 +28,22 @@
 </script>
 </head>
 <body>
-<header class="topnav">
-  <div class="logo">Pineart</div>
+<aside class="sidebar">
   <nav class="views" id="topNav">
-    <button data-view="feed" hidden>Discover</button>
-    <button data-view="boards" data-sub="unorganized">Feed</button>
-    <button data-view="boards" data-sub="organized" class="active">Boards</button>
+    <button data-view="boards" data-sub="unorganized" title="Feed" aria-label="Feed"></button>
+    <button data-view="boards" data-sub="organized" class="active" title="Boards" aria-label="Boards"></button>
+    <button data-view="feed" hidden title="Discover" aria-label="Discover"></button>
   </nav>
-  <div class="nav-right">
-    <!-- Desktop-only by construction: `header.topnav` (and everything in it)
-         is hidden entirely below 640px, same as the rest of this bar. Mobile
-         has no equivalent entry point — dropping a file from a phone's
-         picker onto a hidden topbar isn't a workflow this needs to cover. -->
-    <button class="btn btn-tonal" id="addImagesBtn" title="Add images" aria-label="Add images"></button>
-    <button class="icon-btn" id="settingsBtn" data-view="settings" title="Settings" aria-label="Settings"></button>
-    <input type="file" id="uploadInput" accept="image/*" multiple hidden />
-    <input type="file" id="folderInput" accept="image/*" multiple hidden webkitdirectory />
-  </div>
-</header>
+  <div class="sidebar-spacer"></div>
+  <!-- Desktop-only by construction: `.sidebar` (and everything in it) is
+       hidden entirely below 640px, same as the rest of this rail. Mobile has
+       no equivalent entry point — dropping a file from a phone's picker onto
+       a hidden sidebar isn't a workflow this needs to cover. -->
+  <button class="icon-btn" id="addImagesBtn" title="Add images" aria-label="Add images"></button>
+  <button class="icon-btn" id="settingsBtn" data-view="settings" title="Settings" aria-label="Settings"></button>
+  <input type="file" id="uploadInput" accept="image/*" multiple hidden />
+  <input type="file" id="folderInput" accept="image/*" multiple hidden webkitdirectory />
+</aside>
 
 <main id="app"></main>
 

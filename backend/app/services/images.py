@@ -53,6 +53,20 @@ EXT_BY_FORMAT = {
 THUMB_WIDTH = 400
 DISPLAY_WIDTH = 1200
 
+# 2026-09-18 (direct report: "some of the art is way too compressed, like the
+# one in the banner or avatar, that are supposed to be big and beautiful, not
+# lower version quality") -- avatar/banner/board_cover crops used to reuse
+# `display` (1200px, quality=82 lossy), the same derivative tuned for a
+# 40-tile masonry grid glanced at small. There's exactly one avatar and one
+# banner per profile (and one cover per board) rather than thousands of grid
+# items, so the extra bytes a much higher quality/size derivative costs are
+# irrelevant in practice. HERO_TARGET_SUFFIXES matches the exact suffixes
+# `routers/items.py`'s crop endpoint already keys these storage_key values
+# with (`<hash>_avatar`, `<hash>_banner`, `<hash>_board_cover`).
+HERO_TARGET_SUFFIXES = ("_avatar", "_banner", "_board_cover")
+HERO_WIDTH = 1600
+HERO_QUALITY = 95
+
 
 class InvalidImageError(ValueError):
     """Raised when the uploaded bytes are not a usable image of an allowed type."""
@@ -177,6 +191,24 @@ def _write_derivatives(img: Image.Image, directory: Path, stem: str, *, overwrit
         _atomic_save_image(derivative, path, "WEBP", quality=82, method=4)
 
 
+def _write_hero_derivative(img: Image.Image, directory: Path, stem: str, *, overwrite: bool = False) -> None:
+    """A much higher quality/size derivative for the handful of single-image
+    "hero" surfaces (profile avatar/banner, board cover) -- see
+    HERO_TARGET_SUFFIXES' own comment for why these get different treatment
+    than a generic grid item's thumb/display pair."""
+    path = directory / f"{stem}_hero.webp"
+    if path.exists() and not overwrite:
+        return
+    derivative = img.convert("RGB")
+    if derivative.width > HERO_WIDTH:
+        ratio = HERO_WIDTH / derivative.width
+        derivative = derivative.resize(
+            (HERO_WIDTH, max(1, round(derivative.height * ratio))),
+            Image.Resampling.LANCZOS,
+        )
+    _atomic_save_image(derivative, path, "WEBP", quality=HERO_QUALITY, method=4)
+
+
 def process(
     data: bytes,
     *,
@@ -243,6 +275,8 @@ def process(
             _atomic_write_bytes(original_path, data)
 
     _write_derivatives(img, directory, stem, overwrite=replace)
+    if stem.endswith(HERO_TARGET_SUFFIXES):
+        _write_hero_derivative(img, directory, stem, overwrite=replace)
 
     return ProcessedImage(
         sha256=hash_hex,
