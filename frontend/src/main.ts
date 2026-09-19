@@ -1,6 +1,10 @@
 /** Application entry point: nav, routing, uploads. */
 
 import "./styles.css";
+import "@fontsource/plus-jakarta-sans/400.css";
+import "@fontsource/plus-jakarta-sans/500.css";
+import "@fontsource/plus-jakarta-sans/600.css";
+import "@fontsource/plus-jakarta-sans/700.css";
 
 import { api, setConnectivityHandler, setUnauthorizedHandler } from "./api";
 import { initAddImages, toggleAddImagesMenu } from "./components/addImagesMenu";
@@ -14,7 +18,7 @@ import { renderBoardDetail } from "./views/boardDetail";
 import { renderBoardsView, type BoardsViewHandle } from "./views/boards";
 import { renderFeed } from "./views/feed";
 import { renderLogin } from "./views/login";
-import { renderSettings } from "./views/settings";
+import { renderSettings, type SettingsViewHandle } from "./views/settings";
 
 const app = qs("#app");
 const topNav = qs("#topNav");
@@ -22,13 +26,22 @@ const bottomTabbar = qs("#bottomTabbar");
 
 let teardown: (() => void) | null = null;
 // Tracked separately from `teardown` so a sub-tab switch within an already-
-// mounted boards view can be detected and handled without tearing it down.
+// mounted boards/settings view can be detected and handled without tearing
+// it down (a settings sidebar click would otherwise destroy and re-fetch the
+// tag graph and trash grid on every single click).
 let boardsHandle: BoardsViewHandle | null = null;
+let settingsHandle: SettingsViewHandle | null = null;
 let authenticated = false;
 
 function showLogin(setupRequired: boolean): void {
   teardown?.();
   teardown = null;
+  // Neither handle is valid once the DOM they pointed at is torn down and
+  // replaced with the login screen — left stale, a log-out-then-back-in
+  // while sitting on Boards or Settings would hit the fast-path branch below
+  // against elements that no longer exist.
+  boardsHandle = null;
+  settingsHandle = null;
   authenticated = false;
   setChromeVisible(false);
   renderLogin(app, setupRequired, () => {
@@ -61,9 +74,17 @@ function render(route: router.Route): void {
     return;
   }
 
+  if (route.view === "settings" && settingsHandle) {
+    window.scrollTo(0, 0);
+    settingsHandle.setTab(route.tab);
+    syncNav(route);
+    return;
+  }
+
   teardown?.();
   teardown = null;
   boardsHandle = null;
+  settingsHandle = null;
   window.scrollTo(0, 0);
 
   switch (route.view) {
@@ -75,7 +96,8 @@ function render(route: router.Route): void {
       teardown = renderBoardDetail(app, route.id);
       break;
     case "settings":
-      teardown = renderSettings(app, route.tab);
+      settingsHandle = renderSettings(app, route.tab);
+      teardown = settingsHandle.destroy;
       break;
     case "feed":
       teardown = renderFeed(app);

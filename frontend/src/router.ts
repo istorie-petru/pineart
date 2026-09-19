@@ -13,14 +13,24 @@ export type Route =
   | { view: "settings"; tab: string }
   | { view: "feed" };
 
-const SETTINGS_TABS = ["profile", "appearance", "collection", "tags", "discovery", "trash", "backup"];
+export const SETTINGS_TABS = [
+  "profile",
+  "security",
+  "appearance",
+  "collection",
+  "discovery",
+  "tags",
+  "trash",
+  "data",
+] as const;
+export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 export function parse(hash: string): Route {
   const path = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   if (path[0] === "feed") return { view: "feed" };
   if (path[0] === "board" && path[1]) return { view: "board", id: Number(path[1]) };
   if (path[0] === "settings") {
-    const tab = path[1] && SETTINGS_TABS.includes(path[1]) ? path[1] : "profile";
+    const tab = path[1] && (SETTINGS_TABS as readonly string[]).includes(path[1]) ? path[1] : "profile";
     return { view: "settings", tab };
   }
   const sub = path[1] === "unorganized" ? "unorganized" : "organized";

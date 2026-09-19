@@ -162,7 +162,7 @@ check("board detail grid populated", document.querySelectorAll("#app .masonry .c
 // Settings, including the graph tab
 window.location.hash = "#/settings/tags";
 await wait(1500);
-check("settings tabs rendered", document.querySelectorAll(".settings-tabs button").length === 7);
+check("settings tabs rendered", document.querySelectorAll(".settings-nav-item").length === 8);
 check("tag graph drew nodes", document.querySelectorAll("#tagGraph .graph-node").length > 0,
   `${document.querySelectorAll("#tagGraph .graph-node").length} nodes`);
 check("tag graph drew edges", document.querySelectorAll("#tagGraph line").length > 0,
@@ -170,7 +170,7 @@ check("tag graph drew edges", document.querySelectorAll("#tagGraph line").length
 
 window.location.hash = "#/settings/trash";
 await wait(1000);
-check("trash panel built", document.querySelector('[data-spanel], .settings-panel.active') !== null);
+check("trash panel built", document.querySelector(".settings-panel.active") !== null);
 
 window.location.hash = "#/settings/discovery";
 await wait(1000);
