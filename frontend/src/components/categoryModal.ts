@@ -40,7 +40,7 @@ export function openCategoryModal(category: TagCategory | null, onSaved: () => v
   iconLabel.textContent = "Icon (default for tags in this category)";
   const iconPicker = buildIconPicker(DECORATIVE_ICON_KEYS, category?.icon, { allowNone: true });
 
-  const save = el("button", { class: "btn btn-filled", style: "justify-content:center;" }) as HTMLButtonElement;
+  const save = el("button", { class: "btn btn-filled btn-block" }) as HTMLButtonElement;
   save.textContent = "Save";
   const actions = el("div", { class: "actions actions-column" });
   actions.append(save);
@@ -58,7 +58,7 @@ export function openCategoryModal(category: TagCategory | null, onSaved: () => v
   );
 
   if (category) {
-    const remove = el("button", { class: "btn btn-error-tonal", style: "justify-content:center;" });
+    const remove = el("button", { class: "btn btn-error-tonal btn-block" });
     remove.textContent = "Delete category";
     remove.addEventListener(
       "click",

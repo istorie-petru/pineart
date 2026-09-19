@@ -1,11 +1,13 @@
 /**
- * Settings — architecture §6.5.
- *
- * One continuous page, not a secondary navbar switching between tab panels:
- * every section is on screen at once, in order, separated by a divider and
- * its own heading. Tag graph, Trash and Data management live here rather
- * than as top-level nav destinations — none of them is something you open as
- * often as your own collection, so none earns a nav slot.
+ * Settings — a persistent left-hand nav (`.settings-nav`) listing every
+ * settings category, with the right pane (`.settings-content`) showing
+ * exactly one panel at a time. Each panel is built lazily, the first time
+ * its tab is actually activated (see `ensureBuilt`) — not all eight at once
+ * on mount, which is what used to make opening Settings on the Profile tab
+ * also spin up the tag graph's D3 simulation and fetch the trash grid for no
+ * reason. Tag graph and Trash management still live here rather than as
+ * top-level nav destinations — neither is something you open as often as
+ * your own collection, so neither earns a nav slot.
  */
 
 import { api } from "../api";
@@ -33,57 +35,84 @@ function graphForcesFromSettings(): TagGraphForces {
   };
 }
 
-// A bookmark or the router's default (`{ tab: "profile" }`) may still name a
-// tab from the old tabbed layout — this is where that name lands on the new
-// single page. "collection" and "backup" no longer exist as their own
-// sections (merged into "discovery" and "profile" respectively).
-const SECTION_ANCHORS: Record<string, string> = {
-  profile: "profile",
-  appearance: "appearance",
-  collection: "discovery",
-  discovery: "discovery",
-  tags: "tags",
-  trash: "trash",
-  backup: "profile",
-};
+export interface SettingsViewHandle {
+  destroy: () => void;
+  /** Switches the active panel without tearing down and rebuilding the
+   * whole view — see the call site in main.ts for why that distinction
+   * matters (it would otherwise destroy and re-fetch the tag graph and
+   * trash grid on every sidebar click). */
+  setTab: (tab: string) => void;
+}
 
-export function renderSettings(root: HTMLElement, activeTab: string): () => void {
-  const section = el("section", { class: "view active" });
-  const headerRow = el("div", {
-    class: "settings-header-row",
-    style: "display:flex; align-items:center; justify-content:space-between; gap:12px;",
-  });
-  const heading = el("h2", { class: "view-title", style: "margin-bottom:0;" });
-  heading.textContent = "Settings";
-  headerRow.append(heading);
-  section.append(headerRow);
+const PANELS: { id: router.SettingsTab; label: string; desc: string }[] = [
+  { id: "profile", label: "Profile", desc: "Your display name and description." },
+  { id: "security", label: "Security", desc: "Change your password or sign out of other sessions." },
+  { id: "appearance", label: "Appearance", desc: "Choose a theme and an accent color." },
+  { id: "collection", label: "Collection", desc: "How the collection browses, sorts and stores images." },
+  { id: "discovery", label: "Discovery", desc: "The SearXNG instance and search templates Discover uses." },
+  { id: "tags", label: "Tags", desc: "The tag graph, categories, graph rules and cleanup tools." },
+  { id: "trash", label: "Trash", desc: "Restore or permanently delete soft-deleted items." },
+  { id: "data", label: "Data management", desc: "Export, import, deduplicate, or reset the collection." },
+];
+
+export function renderSettings(root: HTMLElement, activeTab: string): SettingsViewHandle {
+  const section = el("section", { class: "view active settings-view" });
+  const shell = el("div", { class: "settings-shell" });
+  const nav = el("nav", { class: "settings-nav" });
+  const content = el("div", { class: "settings-content" });
+  shell.append(nav, content);
+  section.append(shell);
   root.replaceChildren(section);
 
-  /** One section: a divider (except the very first) then a heading, then
-   * whatever the caller appends into the returned panel. */
-  function addSection(id: string, title: string): HTMLElement {
-    if (section.childElementCount > 1) section.append(el("hr", { class: "settings-section-divider" }));
-    const sectionHeading = el("h3", { class: "settings-section-title", id: `settings-${id}` });
-    sectionHeading.textContent = title;
-    const panel = el("div", { class: "settings-panel" });
-    section.append(sectionHeading, panel);
-    return panel;
+  const navButtons = new Map<router.SettingsTab, HTMLButtonElement>();
+  const panelEls = new Map<router.SettingsTab, HTMLElement>();
+  for (const { id, label } of PANELS) {
+    const button = el("button", { type: "button", class: "settings-nav-item", "data-tab": id }) as HTMLButtonElement;
+    button.textContent = label;
+    button.addEventListener("click", () => router.navigate({ view: "settings", tab: id }));
+    nav.append(button);
+    navButtons.set(id, button);
+
+    const panel = el("div", { class: "subview settings-panel" });
+    content.append(panel);
+    panelEls.set(id, panel);
+  }
+
+  const loadedSettings = store.settings;
+  if (!loadedSettings) {
+    content.replaceChildren(el("p", { class: "hint" }, "Settings are still loading…"));
+    return { destroy: () => undefined, setTab: () => undefined };
+  }
+  // A plain, never-reassigned `const` typed as non-null (not just narrowed
+  // from one) — the panel builders below are function declarations invoked
+  // later via `ensureBuilt`, and TS does not carry a closure-captured
+  // variable's narrowing across a function-declaration boundary, only its
+  // declared type.
+  const settings = loadedSettings;
+
+  /** Every simple form panel shares this: a heading, a one-line description,
+   * and a capped-width column of fields below — Tags and Trash render full
+   * width instead (a 620px cap would crush the graph and the grid) and skip
+   * this helper. */
+  function panelHeader(panelInfo: { label: string; desc: string }): HTMLElement {
+    const form = el("div", { class: "settings-form" });
+    const heading = el("h2", { class: "view-title" });
+    heading.textContent = panelInfo.label;
+    const desc = el("p", { class: "view-desc" });
+    desc.textContent = panelInfo.desc;
+    form.append(heading, desc);
+    return form;
   }
 
   let graph: TagGraphHandle | null = null;
   let trashGrid: Grid | null = null;
-
-  const settings = store.settings;
-  if (!settings) {
-    heading.textContent = "Settings (loading…)";
-    return () => undefined;
-  }
+  let trashIntro: HTMLElement | null = null;
 
   // ---------- Profile ----------
-  {
-    const panel = addSection("profile", "Profile");
+  function buildProfilePanel(panel: HTMLElement): void {
+    const info = PANELS.find((p) => p.id === "profile")!;
+    const form = panelHeader(info);
 
-    const group = el("div", { class: "settings-group" }, "<h4>Account</h4>");
     const col = el("div", { class: "field-col" });
     const nameLabel = el("label");
     nameLabel.textContent = "Name";
@@ -94,7 +123,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     const descInput = el("textarea", { rows: "2" }) as HTMLTextAreaElement;
     descInput.value = settings["profile.description"];
     col.append(nameLabel, nameInput, descLabel, descInput);
-    const saveProfile = el("button", { class: "btn btn-filled" });
+    const saveProfile = el("button", { class: "btn btn-filled btn-fixed" });
     saveProfile.textContent = "Save profile";
     saveProfile.addEventListener(
       "click",
@@ -107,7 +136,14 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
       }),
     );
 
-    const divider = el("div", { style: "height:1px; background:var(--color-border); margin:18px 0;" });
+    form.append(col, saveProfile);
+    panel.append(form);
+  }
+
+  // ---------- Security ----------
+  function buildSecurityPanel(panel: HTMLElement): void {
+    const info = PANELS.find((p) => p.id === "security")!;
+    const form = panelHeader(info);
 
     const pwCol = el("div", { class: "field-col" });
     const currentLabel = el("label");
@@ -121,7 +157,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     const confirmInput = el("input", { type: "password", autocomplete: "new-password" }) as HTMLInputElement;
     pwCol.append(currentLabel, currentInput, newLabel, newInput, confirmLabel, confirmInput);
 
-    const change = el("button", { class: "btn btn-filled" });
+    const change = el("button", { class: "btn btn-filled btn-fixed" });
     change.textContent = "Change password";
     change.addEventListener(
       "click",
@@ -135,7 +171,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
         toast("Password changed — other sessions were signed out");
       }),
     );
-    const logout = el("button", { class: "btn btn-outlined", style: "margin-left:8px;" });
+    const logout = el("button", { class: "btn btn-outlined btn-fixed", style: "margin-left:8px;" });
     logout.textContent = "Log out";
     logout.addEventListener(
       "click",
@@ -147,15 +183,14 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     const pwHint = el("p", { class: "hint", style: "margin-top:12px;" });
     pwHint.textContent = "Changing your password signs out every other browser.";
 
-    group.append(col, saveProfile, divider, pwCol, change, logout, pwHint);
-
-    panel.append(group, buildDataManagementGroup());
+    form.append(pwCol, change, logout, pwHint);
+    panel.append(form);
   }
 
   // ---------- Appearance ----------
-  {
-    const panel = addSection("appearance", "Appearance");
-    const group = el("div", { class: "settings-group" });
+  function buildAppearancePanel(panel: HTMLElement): void {
+    const info = PANELS.find((p) => p.id === "appearance")!;
+    const form = panelHeader(info);
 
     const themeRow = el("div", { class: "field-row" });
     const themeLabel = el("span");
@@ -199,13 +234,14 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     swatch.append(picker);
     accentRow.append(accentLabel, swatch);
 
-    group.append(themeRow, accentRow);
-    panel.append(group);
+    form.append(themeRow, accentRow);
+    panel.append(form);
   }
 
-  // ---------- Discovery & Collection (merged) ----------
-  {
-    const panel = addSection("discovery", "Discovery & Collection");
+  // ---------- Collection ----------
+  function buildCollectionPanel(panel: HTMLElement): void {
+    const info = PANELS.find((p) => p.id === "collection")!;
+    const form = panelHeader(info);
 
     const browsing = el("div", { class: "settings-group" }, "<h4>Browsing</h4>");
     const pageRow = el("div", { class: "field-row" });
@@ -278,6 +314,15 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
 
     storage.append(convert, preserve, retentionRow);
 
+    form.append(browsing, storage);
+    panel.append(form);
+  }
+
+  // ---------- Discovery ----------
+  function buildDiscoveryPanel(panel: HTMLElement): void {
+    const info = PANELS.find((p) => p.id === "discovery")!;
+    const form = panelHeader(info);
+
     // Discovery is always on — the only thing left to configure is where it
     // points and whether that address actually answers.
     const discoveryGroup = el("div", { class: "settings-group" }, "<h4>Discovery</h4>");
@@ -305,7 +350,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     const statusValue = el("span", { style: "text-align:right; font-size:12px;" });
     statusRow.append(statusLabel, statusValue);
 
-    const test = el("button", { class: "btn btn-outlined" });
+    const test = el("button", { class: "btn btn-outlined btn-fixed" });
     test.textContent = "Test connection";
     test.addEventListener(
       "click",
@@ -324,16 +369,26 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
 
     discoveryGroup.append(col, statusRow, test);
 
-    panel.append(browsing, storage, discoveryGroup, buildTemplateGroup());
+    form.append(discoveryGroup, buildTemplateGroup());
+    panel.append(form);
+  }
+
+  // ---------- Data management ----------
+  function buildDataPanel(panel: HTMLElement): void {
+    const info = PANELS.find((p) => p.id === "data")!;
+    const form = panelHeader(info);
+    form.append(buildDataManagementGroup());
+    panel.append(form);
   }
 
   // ---------- Tags (graph lives here) ----------
-  const tagsPanel = addSection("tags", "Tags");
-  let tagsBuilt = false;
-
-  async function buildTagsPanel(): Promise<void> {
-    if (tagsBuilt) return;
-    tagsBuilt = true;
+  async function buildTagsPanel(panel: HTMLElement): Promise<void> {
+    const info = PANELS.find((p) => p.id === "tags")!;
+    const heading = el("h2", { class: "view-title" });
+    heading.textContent = info.label;
+    const headingDesc = el("p", { class: "view-desc" });
+    headingDesc.textContent = info.desc;
+    panel.append(heading, headingDesc);
 
     const canvas = el("div", { id: "tagGraph" });
 
@@ -355,12 +410,12 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
       button.textContent = tab.label;
       button.addEventListener("click", () => activateSidebarTab(tab.id));
       sidebarTabs.append(button);
-      const panel = el("div", { class: "tags-sidebar-panel" });
-      sidebarPanels.set(tab.id, panel);
+      const sidebarPanel = el("div", { class: "tags-sidebar-panel" });
+      sidebarPanels.set(tab.id, sidebarPanel);
     }
     function activateSidebarTab(tabId: string): void {
       sidebarTabs.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tabId));
-      sidebarPanels.forEach((panel, id) => panel.classList.toggle("active", id === tabId));
+      sidebarPanels.forEach((sidebarPanel, id) => sidebarPanel.classList.toggle("active", id === tabId));
     }
 
     // ---- Graph physics: how spread out and how loosely bonded the layout
@@ -397,7 +452,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     // meaningfully resist. Values above that just make everything fight charge
     // and collision harder without adding a distinguishable effect.
     const gravity = sliderRow("Center gravity", { min: 0, max: 1, step: 0.05 });
-    const resetPhysicsBtn = el("button", { class: "btn btn-outlined", style: "width:100%; justify-content:center; margin-top:6px;" });
+    const resetPhysicsBtn = el("button", { class: "btn btn-outlined btn-block", style: "margin-top:6px;" });
     resetPhysicsBtn.textContent = "Reset to defaults";
 
     function paintPhysicsSliders(forces: TagGraphForces): void {
@@ -471,10 +526,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     categoriesHint.textContent =
       "Group tags into supercategories — Character, Show, Media type, or anything else. A tag's color follows its category unless it has one of its own; board search lists tags under these headings.";
     const categoryListEl = el("div", { class: "sidebar-list" });
-    const addCategoryBtn = el("button", {
-      class: "btn btn-outlined",
-      style: "width:100%; justify-content:center;",
-    }, `${icon("plus", true)} Add category`);
+    const addCategoryBtn = el("button", { class: "btn btn-outlined btn-block" }, `${icon("plus", true)} Add category`);
 
     // ---- Graph rules: prune a redundant edge the co-occurrence graph would
     // otherwise draw, e.g. Category=Anime/Show=Haikyu/Character=Hinata on one
@@ -485,10 +537,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     rulesHint.textContent =
       'Hide a direct edge between two categories when a tag on one side already connects through a third. Example: don’t connect "Category" to "Character" when that character already connects via "Show".';
     const rulesList = el("div", { class: "sidebar-list" });
-    const addRuleBtn = el("button", {
-      class: "btn btn-outlined",
-      style: "width:100%; justify-content:center;",
-    }, `${icon("plus", true)} Add rule`);
+    const addRuleBtn = el("button", { class: "btn btn-outlined btn-block" }, `${icon("plus", true)} Add rule`);
 
     const editor = el("div");
     editor.hidden = true;
@@ -562,19 +611,22 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     mergeRowLabel.textContent = "Merge into";
     const mergeSelect = el("select", { style: "max-width:170px;" }) as HTMLSelectElement;
     mergeRow.append(mergeRowLabel, mergeSelect);
-    const mergeBtn = el("button", {
-      class: "btn btn-outlined",
-      style: "width:100%; justify-content:center; margin-top:6px;",
-    }, `${icon("merge", true)} Merge tag`);
+    const mergeBtn = el(
+      "button",
+      { class: "btn btn-outlined btn-block", style: "margin-top:6px;" },
+      `${icon("merge", true)} Merge tag`,
+    );
 
-    const viewImages = el("button", {
-      class: "btn btn-tonal",
-      style: "width:100%; justify-content:center; margin-top:10px;",
-    }, `${icon("search", true)} View images`);
-    const deleteTagBtn = el("button", {
-      class: "btn btn-error-tonal",
-      style: "width:100%; justify-content:center; margin-top:10px;",
-    }, `${icon("trash", true)} Delete tag`);
+    const viewImages = el(
+      "button",
+      { class: "btn btn-tonal btn-block", style: "margin-top:10px;" },
+      `${icon("search", true)} View images`,
+    );
+    const deleteTagBtn = el(
+      "button",
+      { class: "btn btn-error-tonal btn-block", style: "margin-top:10px;" },
+      `${icon("trash", true)} Delete tag`,
+    );
     editor.append(
       nameRow,
       colorRow,
@@ -615,10 +667,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     const unusedHint = el("p", { class: "view-desc", style: "margin-top:0;" });
     unusedHint.textContent = "Tags with no items attached. Safe to delete — nothing references them.";
     const unusedList = el("div", { class: "sidebar-list" });
-    const refreshUnusedBtn = el("button", {
-      class: "btn btn-outlined",
-      style: "width:100%; justify-content:center;",
-    }, `${icon("refresh", true)} Refresh`);
+    const refreshUnusedBtn = el("button", { class: "btn btn-outlined btn-block" }, `${icon("refresh", true)} Refresh`);
 
     async function renderUnusedTags(): Promise<void> {
       unusedList.replaceChildren();
@@ -657,10 +706,11 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     dupeHint.textContent =
       "Items that entered the collection before perceptual-hash dedup existed, or separate uploads of the same picture, don't get caught automatically. This scans everything currently in the collection for close matches.";
     const dupeList = el("div", { class: "sidebar-list" });
-    const scanDupesBtn = el("button", {
-      class: "btn btn-outlined",
-      style: "width:100%; justify-content:center;",
-    }, `${icon("scan", true)} Scan for near-duplicates`);
+    const scanDupesBtn = el(
+      "button",
+      { class: "btn btn-outlined btn-block" },
+      `${icon("scan", true)} Scan for near-duplicates`,
+    );
     scanDupesBtn.addEventListener("click", guard(() => renderNearDuplicatesInto(dupeList)));
 
     sidebarPanels.get("cleanup")!.append(
@@ -681,7 +731,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
     graphCol.append(canvas);
     const layout = el("div", { class: "tags-layout" });
     layout.append(graphCol, sidebar);
-    tagsPanel.append(layout);
+    panel.append(layout);
 
     let categories: TagCategory[] = [];
 
@@ -987,24 +1037,19 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
   }
 
   // ---------- Trash ----------
-  const trashPanel = addSection("trash", "Trash");
-  let trashBuilt = false;
+  async function buildTrashPanel(panel: HTMLElement): Promise<void> {
+    const info = PANELS.find((p) => p.id === "trash")!;
+    const heading = el("h2", { class: "view-title" });
+    heading.textContent = info.label;
 
-  async function buildTrashPanel(): Promise<void> {
-    if (trashBuilt) {
-      await trashGrid?.reload();
-      return;
-    }
-    trashBuilt = true;
-
-    const intro = el("p", { class: "view-desc" });
     const retention = store.settings?.["storage.trash_retention_days"] ?? 30;
-    intro.textContent = `Soft-deleted items. Retained ${retention} days before permanent purge.`;
+    trashIntro = el("p", { class: "view-desc" });
+    trashIntro.textContent = `Soft-deleted items. Retained ${retention} days before permanent purge.`;
 
     const purgeRow = el("div", { style: "display:flex; gap:10px; margin-bottom:16px;" });
-    const purgeExpired = el("button", { class: "btn btn-outlined" });
+    const purgeExpired = el("button", { class: "btn btn-outlined btn-fixed" });
     purgeExpired.textContent = "Purge expired now";
-    const purgeAll = el("button", { class: "btn btn-error-tonal" });
+    const purgeAll = el("button", { class: "btn btn-error-tonal btn-fixed" });
     purgeAll.textContent = "Empty trash";
     purgeRow.append(purgeExpired, purgeAll);
 
@@ -1067,24 +1112,74 @@ export function renderSettings(root: HTMLElement, activeTab: string): () => void
       }),
     );
 
-    trashPanel.append(intro, purgeRow, trashGrid.element);
+    panel.append(heading, trashIntro, purgeRow, trashGrid.element);
     await trashGrid.reload();
     // Cards in the trash are dimmed until hovered, which is what distinguishes
     // the trash grid from the collection at a glance.
     trashGrid.gridElement.querySelectorAll(".card").forEach((card) => card.classList.add("trash-card"));
   }
 
-  void buildTagsPanel();
-  void buildTrashPanel();
+  // ---------- lazy mount + tab switching ----------
+  const built = new Set<router.SettingsTab>();
 
-  const anchor = SECTION_ANCHORS[activeTab];
-  if (anchor && anchor !== "profile") {
-    document.getElementById(`settings-${anchor}`)?.scrollIntoView({ block: "start" });
+  async function ensureBuilt(tab: router.SettingsTab): Promise<void> {
+    if (tab === "trash") {
+      if (built.has("trash")) {
+        const retention = store.settings?.["storage.trash_retention_days"] ?? 30;
+        if (trashIntro) trashIntro.textContent = `Soft-deleted items. Retained ${retention} days before permanent purge.`;
+        await trashGrid?.reload();
+        return;
+      }
+      built.add("trash");
+      await buildTrashPanel(panelEls.get("trash")!);
+      return;
+    }
+    if (built.has(tab)) return;
+    built.add(tab);
+    switch (tab) {
+      case "profile":
+        buildProfilePanel(panelEls.get("profile")!);
+        break;
+      case "security":
+        buildSecurityPanel(panelEls.get("security")!);
+        break;
+      case "appearance":
+        buildAppearancePanel(panelEls.get("appearance")!);
+        break;
+      case "collection":
+        buildCollectionPanel(panelEls.get("collection")!);
+        break;
+      case "discovery":
+        buildDiscoveryPanel(panelEls.get("discovery")!);
+        break;
+      case "data":
+        buildDataPanel(panelEls.get("data")!);
+        break;
+      case "tags":
+        await buildTagsPanel(panelEls.get("tags")!);
+        break;
+    }
   }
 
-  return () => {
-    graph?.destroy();
-    trashGrid?.destroy();
+  function setTab(tab: string): void {
+    const resolved = (router.SETTINGS_TABS as readonly string[]).includes(tab)
+      ? (tab as router.SettingsTab)
+      : "profile";
+    for (const { id } of PANELS) {
+      navButtons.get(id)!.classList.toggle("active", id === resolved);
+      panelEls.get(id)!.classList.toggle("active", id === resolved);
+    }
+    void ensureBuilt(resolved);
+  }
+
+  setTab(activeTab);
+
+  return {
+    destroy: () => {
+      graph?.destroy();
+      trashGrid?.destroy();
+    },
+    setTab,
   };
 }
 
@@ -1137,7 +1232,7 @@ function buildTemplateGroup(): HTMLElement {
     placeholder: "{query} artwork",
     style: "flex:2;",
   }) as HTMLInputElement;
-  const addBtn = el("button", { class: "btn btn-tonal" });
+  const addBtn = el("button", { class: "btn btn-tonal btn-fixed" });
   addBtn.textContent = "Save";
   addRow.append(nameInput, templateInput, addBtn);
 
@@ -1163,7 +1258,7 @@ function buildTemplateGroup(): HTMLElement {
       code.textContent = entry.template;
       text.append(name, document.createElement("br"), code);
 
-      const use = el("button", { class: "btn btn-outlined" });
+      const use = el("button", { class: "btn btn-outlined btn-fixed" });
       use.textContent = "Use";
       use.addEventListener(
         "click",
@@ -1175,7 +1270,7 @@ function buildTemplateGroup(): HTMLElement {
         }),
       );
 
-      const remove = el("button", { class: "btn btn-error-tonal" });
+      const remove = el("button", { class: "btn btn-error-tonal btn-fixed" });
       remove.textContent = "Delete";
       remove.addEventListener(
         "click",
@@ -1304,7 +1399,7 @@ async function renderNearDuplicatesInto(container: HTMLElement, toolbarSlot?: HT
   const extraCount = groups.reduce((sum, group) => sum + group.length - 1, 0);
   const resolveAllBtn = el(
     "button",
-    { class: "btn btn-tonal" },
+    { class: "btn btn-tonal btn-fixed" },
     `${icon("trash", true)} Trash all extras (${extraCount})`,
   );
   resolveAllBtn.addEventListener(
@@ -1404,7 +1499,7 @@ async function renderNearDuplicatesInto(container: HTMLElement, toolbarSlot?: HT
     resolvers.push(resolveGroup);
 
     const actions = el("div", { class: "row-actions", style: "margin-top:10px;" });
-    const resolve = el("button", { class: "btn btn-tonal" }, "Keep selected, trash the rest");
+    const resolve = el("button", { class: "btn btn-tonal btn-fixed" }, "Keep selected, trash the rest");
     resolve.addEventListener(
       "click",
       guard(async () => {
@@ -1433,7 +1528,7 @@ function openDuplicatesModal(): void {
   scroll.append(list);
 
   const footer = el("div", { class: "duplicates-modal-footer" });
-  const closeBtn = el("button", { class: "btn btn-outlined" }, "Close");
+  const closeBtn = el("button", { class: "btn btn-outlined btn-fixed" }, "Close");
   closeBtn.addEventListener("click", () => modal.close());
   footer.append(closeBtn);
 
@@ -1453,7 +1548,7 @@ function buildDataManagementGroup(): HTMLElement {
   const exportRow = el("div", { class: "field-row" });
   const exportLabel = el("span");
   exportLabel.textContent = "Full export (database + image files)";
-  const exportLink = el("a", { class: "btn btn-tonal", href: api.exportUrl, download: "" });
+  const exportLink = el("a", { class: "btn btn-tonal btn-fixed", href: api.exportUrl, download: "" });
   exportLink.innerHTML = `${icon("download", true)} Export`;
   exportRow.append(exportLabel, exportLink);
 
@@ -1462,7 +1557,7 @@ function buildDataManagementGroup(): HTMLElement {
   importLabel.textContent = "Import from an export archive";
   const importInput = el("input", { type: "file", accept: ".zip" }) as HTMLInputElement;
   importInput.hidden = true;
-  const importBtn = el("button", { class: "btn btn-outlined" }, `${icon("upload", true)} Import`);
+  const importBtn = el("button", { class: "btn btn-outlined btn-fixed" }, `${icon("upload", true)} Import`);
   importBtn.addEventListener("click", () => importInput.click());
   importInput.addEventListener(
     "change",
@@ -1485,14 +1580,14 @@ function buildDataManagementGroup(): HTMLElement {
   const dupeRow = el("div", { class: "field-row" });
   const dupeLabel = el("span");
   dupeLabel.textContent = "Scan the collection for near-duplicate images";
-  const dupeBtn = el("button", { class: "btn btn-outlined" }, `${icon("scan", true)} Check & merge duplicates`);
+  const dupeBtn = el("button", { class: "btn btn-outlined btn-fixed" }, `${icon("scan", true)} Check & merge duplicates`);
   dupeBtn.addEventListener("click", openDuplicatesModal);
   dupeRow.append(dupeLabel, dupeBtn);
 
   const resetRow = el("div", { class: "field-row" });
   const resetLabel = el("span");
   resetLabel.textContent = "Untag every item and clear the avatar, banner and every board's cover";
-  const resetBtn = el("button", { class: "btn btn-error-tonal" }, "Reset tags & covers");
+  const resetBtn = el("button", { class: "btn btn-error-tonal btn-fixed" }, "Reset tags & covers");
   resetBtn.addEventListener(
     "click",
     guard(async () => {
@@ -1512,7 +1607,7 @@ function buildDataManagementGroup(): HTMLElement {
   const deleteAllRow = el("div", { class: "field-row" });
   const deleteAllLabel = el("span");
   deleteAllLabel.textContent = "Delete every image, board, tag and category — the entire collection";
-  const deleteAllBtn = el("button", { class: "btn btn-error-tonal" }, "Delete all");
+  const deleteAllBtn = el("button", { class: "btn btn-error-tonal btn-fixed" }, "Delete all");
   deleteAllBtn.addEventListener(
     "click",
     guard(async () => {

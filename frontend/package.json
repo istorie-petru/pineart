@@ -11,6 +11,7 @@
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
+    "@fontsource/plus-jakarta-sans": "^5.3.0",
     "cropperjs": "^1.6.2",
     "d3-drag": "^3.0.0",
     "d3-force": "^3.0.0",
