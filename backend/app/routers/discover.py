@@ -7,10 +7,6 @@ else.
 
 from __future__ import annotations
 
-import ipaddress
-import socket
-from urllib.parse import urlparse
-
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -19,7 +15,7 @@ from ..config import get_config
 from ..db import get_db
 from ..schemas import DiscoverResponse, DiscoverResult, DiscoverSave, UploadResult
 from ..serializers import item_out
-from ..services import images, ingest, search, settings_store
+from ..services import images, ingest, net, search, settings_store
 from ..services import tags as tag_service
 
 router = APIRouter(prefix="/api/discover", tags=["discovery"])
@@ -43,34 +39,13 @@ def _searxng_base(db: Session) -> str:
 
 
 def _assert_public_http_url(url: str) -> None:
-    """Reject non-HTTP schemes and addresses on the local/private network.
-
-    Without this, `POST /api/discover/save` is a server-side request forgery
-    primitive: the backend would happily fetch `http://127.0.0.1:8080/admin` or a
-    cloud metadata endpoint and store the response. The check resolves the
-    hostname first, because a public-looking name can point at 127.0.0.1.
+    """`POST /api/discover/save` fetches a URL a user supplied server-side --
+    see `services.net.assert_public_http_url` for why that has to be guarded.
     """
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise HTTPException(status_code=400, detail="Only http(s) URLs can be saved")
-    if not parsed.hostname:
-        raise HTTPException(status_code=400, detail="URL has no host")
     try:
-        infos = socket.getaddrinfo(parsed.hostname, None)
-    except socket.gaierror as exc:
-        raise HTTPException(status_code=400, detail="Could not resolve host") from exc
-    for info in infos:
-        address = ipaddress.ip_address(info[4][0])
-        if (
-            address.is_private
-            or address.is_loopback
-            or address.is_link_local
-            or address.is_reserved
-            or address.is_multicast
-        ):
-            raise HTTPException(
-                status_code=400, detail="Refusing to fetch a private or loopback address"
-            )
+        net.assert_public_http_url(url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def apply_template(template: str, query: str) -> str:

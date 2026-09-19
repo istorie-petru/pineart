@@ -323,7 +323,7 @@ class LinkIn(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     url: str = Field(min_length=1)
     description: str | None = None
-    category: str | None = None
+    group_name: str | None = None
     icon: str | None = None
     position: int | None = None
 
@@ -339,21 +339,26 @@ class LinkPatch(BaseModel):
     title: str | None = None
     url: str | None = None
     description: str | None = None
-    category: str | None = None
+    group_name: str | None = None
     icon: str | None = None
     position: int | None = None
+    cover_item_id: int | None = None
 
 
 class LinkOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     id: int
     title: str
     url: str
     description: str | None
-    category: str | None
+    group_name: str | None
     icon: str | None
     position: int
+    cover_item_id: int | None
+    # Ready-to-use `/api/items/{id}/file/thumb` URL, resolved by the router
+    # the same way `_decorate` resolves the profile avatar/banner in
+    # routers/settings.py -- saves the frontend a second round-trip just to
+    # turn an item id into an `<img src>`.
+    cover_url: str | None = None
 
 
 class SettingsIn(BaseModel):

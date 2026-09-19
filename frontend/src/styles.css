@@ -398,17 +398,6 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 .profile-desc {
   color: var(--color-text-muted); font-size: 13px; margin: 0 auto 14px; max-width: 480px;
 }
-.profile-links { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
-.link-pill {
-  display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius-pill);
-  background: var(--color-surface); font-size: 12.5px; cursor: pointer;
-  border: 1px solid var(--color-border); transition: var(--transition-fast);
-  text-decoration: none; color: var(--color-text);
-}
-.link-pill:hover { background: var(--color-surface-2); transform: translateY(-1px); }
-.link-pill.add-pill { border-style: dashed; color: var(--color-text-muted); }
-.link-pill .pill-edit { opacity: 0.5; margin-left: 2px; }
-.link-pill:hover .pill-edit { opacity: 1; }
 
 /* ---------- controls ---------- */
 .segmented {
@@ -728,15 +717,31 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
    ← → — so here the *pane* is a fixed box (filling the modal's own fixed
    height via flex stretch) with padding, and the image sits inside it
    letterboxed (`object-fit: contain`) rather than dictating the box's shape. */
-.modal.item-modal { width: 920px; height: 600px; max-width: calc(100vw - 40px); max-height: calc(100vh - 40px); }
-.modal.item-modal .img-pane { min-height: 0; padding: 20px; }
+/* `.item-modal` overrides the base `.modal`'s row layout with a column of
+   its own: `.item-modal-content` (the image/info split) on top, `.modal-footer`
+   spanning the full width underneath -- so the footer reads as the modal's
+   own footer, not something nested inside the info column. */
+.modal.item-modal {
+  flex-direction: column;
+  width: 920px; height: 600px; max-width: calc(100vw - 40px); max-height: calc(100vh - 40px);
+}
+.item-modal-content { display: flex; flex: 1; min-height: 0; }
+/* Even halves: the image pane no longer takes the base `.img-pane`'s 1.3x
+   share, since `.item-modal-right` needs to match it exactly. `min-width: 0`
+   on both overrides the flex default of `min-width: auto`, which otherwise
+   lets whichever side has the wider unwrapped content (the versions strip,
+   a long tag list) claim more than its fair half instead of actually
+   splitting the row evenly. */
+.modal.item-modal .img-pane { flex: 1; min-height: 0; min-width: 0; padding: 20px; }
 .modal.item-modal .img-pane img { width: 100%; height: 100%; max-width: none; max-height: none; object-fit: contain; }
+.item-modal-right { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.modal.item-modal .info-pane { flex: 1; min-height: 0; }
 .modal .info-pane { flex: 1; padding: 20px; overflow-y: auto; }
-.modal .info-pane h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+.modal .info-pane h3 { margin: 0 0 8px; font-size: 21px; font-weight: 600; }
 .modal .info-pane p.meta { color: var(--color-text-muted); font-size: 12.5px; margin: 0 0 14px; }
 .tag-chip {
-  display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; padding: 4px 9px;
-  border-radius: 12px; margin: 0 5px 5px 0; color: #fff; border: none; cursor: default;
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 6px 12px;
+  border-radius: 20px; margin: 0 6px 6px 0; color: #fff; border: none; cursor: default;
 }
 .tag-chip button { background: none; border: none; color: inherit; cursor: pointer; padding: 0; line-height: 1; }
 .tag-chip a { color: inherit; text-decoration: underline; text-decoration-style: dotted; }
@@ -762,8 +767,14 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
    2026-09-17, ui.ts's appendModalActions). */
 .modal .actions .btn { justify-content: center; }
 .modal .actions:not(.actions-column) .btn { flex: 1; }
-.modal .rec-strip { display: flex; gap: 8px; overflow-x: auto; margin-top: 8px; }
-.modal .rec-strip img { width: 64px; height: 64px; border-radius: 8px; flex-shrink: 0; object-fit: cover; cursor: pointer; }
+.modal .rec-strip { display: flex; align-items: center; gap: 8px; overflow-x: auto; margin-top: 8px; }
+/* Fixed height, auto width: each thumbnail keeps its own aspect ratio
+   (portrait, square, landscape) instead of being cropped square to match
+   its neighbours, same reasoning as the main img-pane above. */
+.modal .rec-strip img {
+  height: 64px; width: auto; max-width: 120px; border-radius: 8px; flex-shrink: 0;
+  object-fit: contain; background: var(--color-surface-2); cursor: pointer;
+}
 .modal .close-btn {
   position: absolute; top: 14px; right: 14px; background: rgba(0, 0, 0, 0.5); color: #fff;
   border: none; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; z-index: 5;
@@ -1121,6 +1132,29 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 .status-card-header .icon-btn { padding: 5px; margin: -5px; }
 .status-card-status { display: flex; align-items: center; font-size: 12.5px; font-weight: 600; margin: 0 0 4px; }
 .status-card-desc { font-size: 12px; color: var(--color-text-muted); margin: 0; }
+
+/* ---------- Links page ---------- */
+.links-body { margin-top: 18px; }
+.links-group { margin-bottom: 24px; }
+.links-group-title { font-size: 14px; font-weight: 600; margin: 0 0 10px; color: var(--color-text-muted); }
+/* Smaller tiles than `.status-card-grid`'s own settings-page sizing (a link
+   card carries much less than a status card -- no status line, no
+   description paragraph) so several fit per row instead of two or three. */
+.links-group .status-card-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.link-card { display: flex; flex-direction: column; padding: 10px 12px 12px; transition: var(--transition-fast); }
+.link-card:hover { box-shadow: var(--elevation-2); transform: translateY(-1px); }
+.link-card .status-card-header { margin-bottom: 8px; }
+.link-card .status-card-title { font-size: 12.5px; }
+.link-card .status-card-header .icon-btn { padding: 4px; margin: -4px; }
+.link-card .status-card-header .icon-btn svg { width: 15px; height: 15px; }
+.link-card-cover {
+  aspect-ratio: 16 / 9; border-radius: var(--radius-card) var(--radius-card) 0 0;
+  margin: -10px -12px 9px; background: var(--color-surface-2) center/cover no-repeat;
+  display: flex; align-items: center; justify-content: center; color: var(--color-text-muted);
+}
+.link-card-cover svg { width: 24px; height: 24px; }
+.link-card-group { font-style: italic; font-size: 11.5px; }
+
 /* The danger-zone card below the grid: same bordered/rounded card shell as
    `.status-card`, but a row-per-action list (title+description left, the
    one destructive button right) with dividers between rows instead of a
@@ -1317,20 +1351,44 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
     background: rgba(255, 255, 255, 0.85); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   }
 
-  /* The pin modal specifically (see the `.item-modal` classes added in
-     itemModal.ts): the image drops to a banner-like strip up top instead of
-     dominating — this view is for reading and editing the metadata below
-     it, not for looking at the picture, which is already what opening the
-     pin in the first place was for. */
+  /* The pin modal specifically (see the `.item-modal-backdrop`/`.item-modal`
+     classes added in itemModal.ts): rather than the bottom-sheet treatment
+     every other modal gets here, it takes over the whole screen as its own
+     full-bleed page — the Pinterest-style pin view, not a dialog squeezed
+     onto a phone. That also means the image can keep its own aspect ratio
+     (a tall portrait vs. a wide landscape) instead of being cropped into a
+     fixed-height banner strip. */
+  .modal-backdrop.item-modal-backdrop { align-items: stretch; padding: 0; }
+  .modal-backdrop.item-modal-backdrop .modal.item-modal {
+    width: 100%; height: 100%; max-width: 100%; max-height: 100%;
+    border-radius: 0; animation: page-slide-in 220ms ease-out;
+  }
+  @keyframes page-slide-in {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+  /* No drag handle on the full page — there's no sheet to drag closed, the
+     close button (and the existing swipe-down-on-image gesture) cover it. */
+  .modal.item-modal .sheet-handle { display: none; }
+  /* The image/info split stacks instead of sitting side by side here — same
+     `.item-modal-content` row as desktop, just switched to a column. */
+  .item-modal-content { flex-direction: column; }
   .modal.item-modal .img-pane {
-    flex: none; height: 200px; min-height: 0; overflow: hidden; padding: 0;
+    flex: none; width: 100%; max-width: 100%; max-height: 55vh; min-height: 0; padding: 0;
   }
   .modal.item-modal .img-pane img {
-    width: 100%; height: 100%; max-width: none; max-height: none; object-fit: cover;
+    width: 100%; height: auto; max-width: 100%; max-height: 55vh; object-fit: contain;
   }
-  .modal.item-modal .info-pane {
-    flex: none; overflow-y: visible; padding-bottom: calc(20px + env(safe-area-inset-bottom));
-  }
+  /* Fills whatever height the image strip didn't take, then splits that
+     between the scrolling metadata and the pinned footer below it — same
+     split as the desktop two-column layout, just stacked instead of
+     side-by-side. */
+  .item-modal-right { flex: 1; width: 100%; min-height: 0; }
+  .modal.item-modal .info-pane { flex: 1; width: 100%; min-height: 0; overflow-y: auto; }
+  /* The full-page pin view's footer sits flush against the bottom edge of
+     the screen (unlike a bottom sheet, which never reaches it) -- extra
+     padding clears the home indicator on devices that have one. */
+  .modal.item-modal .modal-footer { padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
 
   /* Every modal header needs extra top clearance here, not just the
      duplicates modal's — the mobile bottom-sheet's own drag handle
@@ -1346,7 +1404,7 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
      cited minimum; sized comfortably for a mouse cursor is not the same as
      reliable for a fingertip. Padding grows the hit area without growing the
      icon itself. */
-  .icon-btn, .kebab-btn, .save-btn.icon-only { min-width: 44px; min-height: 44px; }
+  .icon-btn, .kebab-btn, .save-btn.icon-only, .close-btn { min-width: 44px; min-height: 44px; }
 }
 
 /* ---------- themed scrollbars ----------

@@ -79,6 +79,21 @@ def clean_tables(migrated_database):  # noqa: ANN001
         connection.commit()
 
 
+@pytest.fixture(autouse=True)
+def no_real_link_previews(monkeypatch: pytest.MonkeyPatch):
+    """`POST/PATCH /api/links` best-effort-fetches a preview image from the
+    link's own URL (services/link_preview.py) -- without this, every test
+    that creates a link would fire a real outbound HTTP request, which is
+    slow and flaky in a sandboxed/offline test run. Tests that specifically
+    exercise the fetch override this with their own monkeypatch.
+    """
+
+    async def _no_preview(url: str) -> bytes | None:  # noqa: ANN001
+        return None
+
+    monkeypatch.setattr("app.services.link_preview.fetch_preview_image", _no_preview)
+
+
 TEST_PASSWORD = "correct-horse-battery"
 
 

@@ -11,7 +11,8 @@ export type Route =
   | { view: "boards"; sub: "unorganized" | "organized" }
   | { view: "board"; id: number }
   | { view: "settings"; tab: string }
-  | { view: "feed" };
+  | { view: "feed" }
+  | { view: "links" };
 
 export const SETTINGS_TABS = [
   "profile",
@@ -28,6 +29,7 @@ export type SettingsTab = (typeof SETTINGS_TABS)[number];
 export function parse(hash: string): Route {
   const path = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   if (path[0] === "feed") return { view: "feed" };
+  if (path[0] === "links") return { view: "links" };
   if (path[0] === "board" && path[1]) return { view: "board", id: Number(path[1]) };
   if (path[0] === "settings") {
     const tab = path[1] && (SETTINGS_TABS as readonly string[]).includes(path[1]) ? path[1] : "profile";
@@ -41,6 +43,8 @@ export function href(route: Route): string {
   switch (route.view) {
     case "feed":
       return "#/feed";
+    case "links":
+      return "#/links";
     case "board":
       return `#/board/${route.id}`;
     case "settings":

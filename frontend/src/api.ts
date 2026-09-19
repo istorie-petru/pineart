@@ -333,11 +333,18 @@ export const api = {
 
   // --- links ---
   listLinks: () => request<Link[]>("/api/links"),
-  createLink: (body: { title: string; url: string; icon?: string | null }) =>
+  createLink: (body: { title: string; url: string; icon?: string | null; group_name?: string | null }) =>
     request<Link>("/api/links", json("POST", body)),
-  patchLink: (id: number, body: { title?: string; url?: string; icon?: string | null }) =>
-    request<Link>(`/api/links/${id}`, json("PATCH", body)),
+  patchLink: (
+    id: number,
+    body: { title?: string; url?: string; icon?: string | null; group_name?: string | null },
+  ) => request<Link>(`/api/links/${id}`, json("PATCH", body)),
   deleteLink: (id: number) => request<void>(`/api/links/${id}`, { method: "DELETE" }),
+  setLinkCover: (id: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<Link>(`/api/links/${id}/cover`, { method: "POST", body: form });
+  },
 
   // --- settings ---
   getSettings: () => request<Settings>("/api/settings"),

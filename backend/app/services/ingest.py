@@ -46,6 +46,14 @@ def ingest(
     # a trail of abandoned derivatives. Content dedup is skipped for these: two
     # different crops of one photo are legitimately different pictures, and the
     # file they share a name with is being rewritten anyway.
+    #
+    # A plain keyed upload (routers/links.py's link-cover upload) can plausibly
+    # collide with something already in the collection, though -- `items.hash`
+    # is globally unique, so a second row can't be inserted for the same bytes
+    # regardless. Dedup finds that existing item and hands it back unchanged;
+    # the caller's own `replace_item` lookup is what has to make sure a later
+    # re-upload never mistakes that borrowed, unrelated item for one of its
+    # own keyed covers and overwrites it in place.
     existing = None if replace_item is not None else db.scalar(select(Item).where(Item.hash == hash_hex))
     if existing is not None:
         # Re-uploading a file that is in the trash restores it rather than

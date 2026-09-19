@@ -108,6 +108,11 @@ export const ICONS: Record<string, string> = {
   bookmark: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
   // = Curodav icon-external-link
   extlink: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
+  // Standard Feather `link` -- no confirmed Curodav equivalent (unlike
+  // extlink's "opens in a new tab" arrow, this is the plain chain-link glyph
+  // used for the Links nav item, since the page is a list of links rather
+  // than a single outbound jump).
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   // = Curodav icon-folder
   folder: '<path d="M4 4h5l2 3h9a1 1 0 0 1 1 1v10a2 2 0 0 1-2 2H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/>',
   // = Curodav icon-heart

@@ -1,4 +1,6 @@
-/** Create/edit a link pill. There is no list view — this modal is the link UI. */
+/** Create/edit a link's details — title, URL, group and icon. The Links page
+ * (views/links.ts) is where links are listed and where the preview image is
+ * uploaded; this modal only covers the text fields. */
 
 import { api } from "../api";
 import { DECORATIVE_ICON_KEYS } from "../icons";
@@ -23,6 +25,15 @@ export function openLinkModal(link: Link | null, onSaved: () => void): void {
   const urlInput = el("input", { type: "text", name: "url", placeholder: "https://…" }) as HTMLInputElement;
   urlInput.value = link?.url ?? "";
 
+  const groupLabel = el("label");
+  groupLabel.textContent = "Group";
+  const groupInput = el("input", {
+    type: "text",
+    name: "group",
+    placeholder: "e.g. Shops (optional)",
+  }) as HTMLInputElement;
+  groupInput.value = link?.group_name ?? "";
+
   const iconLabel = el("label");
   iconLabel.textContent = "Icon";
   const iconPicker = createIconPicker(DECORATIVE_ICON_KEYS, link?.icon ?? "globe", undefined, { ariaLabel: "Icon" });
@@ -45,7 +56,7 @@ export function openLinkModal(link: Link | null, onSaved: () => void): void {
     );
   }
 
-  modal.body.append(nameLabel, nameInput, urlLabel, urlInput, iconLabel, iconPicker.element);
+  modal.body.append(nameLabel, nameInput, urlLabel, urlInput, groupLabel, groupInput, iconLabel, iconPicker.element);
   appendModalActions(modal, save, remove);
 
   save.addEventListener(
@@ -63,9 +74,10 @@ export function openLinkModal(link: Link | null, onSaved: () => void): void {
 
       save.disabled = true;
       const chosenIcon = iconPicker.get() ?? "globe";
+      const group_name = groupInput.value.trim() || null;
       try {
-        if (link) await api.patchLink(link.id, { title, url, icon: chosenIcon });
-        else await api.createLink({ title, url, icon: chosenIcon });
+        if (link) await api.patchLink(link.id, { title, url, icon: chosenIcon, group_name });
+        else await api.createLink({ title, url, icon: chosenIcon, group_name });
         modal.close();
         onSaved();
       } finally {

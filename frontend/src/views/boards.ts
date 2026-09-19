@@ -1,11 +1,11 @@
 /**
  * Boards — the default landing view (architecture §6.2).
  *
- * Profile header, the link-pill row (which is where link management lives; there
- * is no separate link page), then Feed / Boards. "Feed" and "Boards" are the
- * user-facing names; the route/sub values underneath stay "unorganized" and
- * "organized" since that's what the URL, sessionStorage key and backend
- * filters already use.
+ * Profile header, then Feed / Boards. "Feed" and "Boards" are the user-facing
+ * names; the route/sub values underneath stay "unorganized" and "organized"
+ * since that's what the URL, sessionStorage key and backend filters already
+ * use. Links used to live in a pill row here — they now have their own page
+ * (views/links.ts) instead.
  */
 
 import { api } from "../api";
@@ -13,13 +13,12 @@ import { openBoardCreateModal } from "../components/boardModal";
 import { Grid } from "../components/grid";
 import { openCropModal } from "../components/cropModal";
 import { openItemModal } from "../components/itemModal";
-import { openLinkModal } from "../components/linkModal";
 import { openTagsEditorModal, pickBoard, promptTags } from "../components/pickers";
 import { SearchBar } from "../components/searchBar";
 import { icon } from "../icons";
 import * as router from "../router";
 import { store } from "../store";
-import type { Link, SortKey } from "../types";
+import type { SortKey } from "../types";
 import { confirmDialog, el, guard, toast } from "../ui";
 
 export interface BoardsViewHandle {
@@ -38,8 +37,7 @@ export function renderBoardsView(root: HTMLElement, sub: "unorganized" | "organi
   avatarWrap.append(avatar);
   const name = el("h2", { class: "profile-name" });
   const description = el("p", { class: "profile-desc" });
-  const links = el("div", { class: "profile-links" });
-  header.append(banner, avatarWrap, name, description, links);
+  header.append(banner, avatarWrap, name, description);
 
   // The Unorganized/Organized toggle itself lives in the topbar (and the
   // mobile bottom bar) now, not in the page body — see main.ts's buildNav.
@@ -71,28 +69,6 @@ export function renderBoardsView(root: HTMLElement, sub: "unorganized" | "organi
       ? `url(${settings["profile.avatar_url"]}) center/cover`
       : "linear-gradient(135deg, #3a5a40, #588157)";
   }
-
-  const renderLinks = guard(async () => {
-    const list: Link[] = await api.listLinks();
-    links.replaceChildren();
-    for (const link of list) {
-      const pill = el("a", { class: "link-pill", href: link.url, target: "_blank", rel: "noreferrer noopener" });
-      pill.innerHTML = `${icon(link.icon ?? "globe", true)}${link.title}`;
-      const edit = el("span", { class: "pill-edit", title: "Edit link" }, icon("sliders", true));
-      edit.addEventListener("click", (event) => {
-        // The pill is a real anchor so middle-click and "open in new tab" work;
-        // only the small edit affordance opens the editor.
-        event.preventDefault();
-        event.stopPropagation();
-        openLinkModal(link, () => renderLinks());
-      });
-      pill.append(edit);
-      links.append(pill);
-    }
-    const add = el("button", { class: "link-pill add-pill" }, `${icon("plus", true)} Add link`);
-    add.addEventListener("click", () => openLinkModal(null, () => renderLinks()));
-    links.append(add);
-  });
 
   // ---------- unorganized ----------
   // The tag graph's "View images" button hands a query over through
@@ -328,7 +304,7 @@ export function renderBoardsView(root: HTMLElement, sub: "unorganized" | "organi
   // (minus bulk-select, which isn't wired up for this section) so tagging
   // an item here behaves exactly like it does everywhere else.
   const untaggedDivider = el("hr", { class: "section-divider" });
-  const untaggedTitle = el("h2", { class: "view-title", style: "margin-top:20px;" }, "Untagged");
+  const untaggedTitle = el("h2", { class: "view-title", style: "margin:20px 0;" }, "Untagged");
   const untaggedGrid = new Grid({
     minColumnWidth: 190,
     infiniteScroll: store.settings?.["collection.infinite_scroll"] !== false,
@@ -419,7 +395,6 @@ export function renderBoardsView(root: HTMLElement, sub: "unorganized" | "organi
 
   // ---------- boot ----------
   renderProfile();
-  void renderLinks();
   void renderBoards();
   void untaggedGrid.reload().catch((error: unknown) => toast(String(error), "error"));
   // The Feed grid's first load happens through `applySub` below, not here —

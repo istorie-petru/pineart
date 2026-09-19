@@ -107,9 +107,13 @@ export interface Link {
   title: string;
   url: string;
   description: string | null;
-  category: string | null;
+  /** Groups links into sections on the Links page — both the section header
+   * and the label under each card. */
+  group_name: string | null;
   icon: string | null;
   position: number;
+  cover_item_id: number | null;
+  cover_url: string | null;
 }
 
 export interface GraphNode {

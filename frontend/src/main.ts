@@ -17,6 +17,7 @@ import { el, installPasteTrimming, qs, renderErrorView, setConnectivityBannerVis
 import { renderBoardDetail } from "./views/boardDetail";
 import { renderBoardsView, type BoardsViewHandle } from "./views/boards";
 import { renderFeed } from "./views/feed";
+import { renderLinksView } from "./views/links";
 import { renderLogin } from "./views/login";
 import { renderSettings, type SettingsViewHandle } from "./views/settings";
 
@@ -102,6 +103,9 @@ function render(route: router.Route): void {
     case "feed":
       teardown = renderFeed(app);
       break;
+    case "links":
+      teardown = renderLinksView(app);
+      break;
   }
   syncNav(route);
 }
@@ -144,6 +148,7 @@ function updateFeedVisibility(): void {
 const NAV_ITEMS: [view: string, label: string, iconName: string, sub: string | undefined][] = [
   ["boards", "Feed", "home", "unorganized"],
   ["boards", "Boards", "boards", "organized"],
+  ["links", "Links", "link", undefined],
   ["feed", "Discover", "compass", undefined],
   ["settings", "Settings", "settings", undefined],
 ];
@@ -184,6 +189,7 @@ function buildNav(): void {
     button.addEventListener("click", () => {
       const view = button.dataset.view;
       if (view === "feed") router.navigate({ view: "feed" });
+      else if (view === "links") router.navigate({ view: "links" });
       else if (view === "settings") router.navigate({ view: "settings", tab: "profile" });
       else router.navigate({ view: "boards", sub: (button.dataset.sub as "unorganized" | "organized") ?? "organized" });
     });
@@ -234,6 +240,7 @@ function setupSwipeNav(): void {
   const PAGES: router.Route[] = [
     { view: "boards", sub: "unorganized" },
     { view: "boards", sub: "organized" },
+    { view: "links" },
     { view: "feed" },
     { view: "settings", tab: "profile" },
   ];
@@ -241,10 +248,12 @@ function setupSwipeNav(): void {
     switch (route.view) {
       case "boards":
         return route.sub === "unorganized" ? 0 : 1;
-      case "feed":
+      case "links":
         return 2;
-      case "settings":
+      case "feed":
         return 3;
+      case "settings":
+        return 4;
       default:
         return -1;
     }

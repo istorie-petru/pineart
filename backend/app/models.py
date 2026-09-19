@@ -281,9 +281,19 @@ class Link(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    category: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Groups links into sections on the Links page (both the section header
+    # and the label under each card) -- was called `category` before links
+    # got their own page, never actually surfaced in the UI until now.
+    group_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     icon: Mapped[str | None] = mapped_column(String(32), nullable=True)
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # A link's preview image, stored the same way an avatar/banner/board cover
+    # is: as a real Item kept out of the main grid via
+    # `derivative_target="link_cover"`, so uploading one reuses the existing
+    # ingest/derivative pipeline instead of a second one-off image path.
+    cover_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("items.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 class Setting(Base):

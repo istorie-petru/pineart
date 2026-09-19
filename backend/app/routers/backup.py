@@ -108,10 +108,18 @@ def export_archive(background: BackgroundTasks, db: Session = Depends(get_db)) -
             }
             for b in db.scalars(select(Board)).all()
         ],
-        "links": _dump(
-            db.scalars(select(Link)).all(),
-            ("title", "url", "description", "category", "icon", "position"),
-        ),
+        "links": [
+            {
+                "title": link.title,
+                "url": link.url,
+                "description": link.description,
+                "group_name": link.group_name,
+                "icon": link.icon,
+                "position": link.position,
+                "cover_hash": next((i.hash for i in items if i.id == link.cover_item_id), None),
+            }
+            for link in db.scalars(select(Link)).all()
+        ],
         "settings": {s.key: json.loads(s.value) for s in db.scalars(select(Setting)).all()},
     }
 
@@ -250,10 +258,20 @@ async def import_archive(
                         )
             db.commit()
 
-            for link in manifest.get("links", []):
-                exists = db.scalar(select(Link).where(Link.url == link["url"]))
+            for link_data in manifest.get("links", []):
+                exists = db.scalar(select(Link).where(Link.url == link_data["url"]))
                 if not exists:
-                    db.add(Link(**link))
+                    cover_hash = link_data.get("cover_hash")
+                    exists = Link(
+                        title=link_data["title"],
+                        url=link_data["url"],
+                        description=link_data.get("description"),
+                        group_name=link_data.get("group_name"),
+                        icon=link_data.get("icon"),
+                        position=link_data.get("position", 0),
+                        cover_item_id=hash_to_item[cover_hash].id if cover_hash in hash_to_item else None,
+                    )
+                    db.add(exists)
             db.commit()
 
             for key, value in (manifest.get("settings") or {}).items():
