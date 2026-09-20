@@ -443,6 +443,10 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 .dropdown-search { width: 100%; margin-bottom: 10px; }
 .dropdown-tags {
   display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; margin-bottom: 14px;
+  /* Stops a wheel scroll that reaches the top/bottom of this list from
+     chaining to the page behind the dropdown -- same fix as
+     `.action-menu-panel`'s own comment. */
+  overscroll-behavior: contain;
 }
 .dropdown-tag-group-label {
   display: block; margin: 6px 0 2px; font-size: 10px; color: var(--color-text-muted);
@@ -548,10 +552,23 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
    card.ts's old .kebab-menu/.kebab-divider/.kebab-icon-row are gone,
    migrated onto this -- .kebab-wrap/.kebab-btn above stay, they style the
    card's ⋮ trigger button itself, not its (now shared) menu panel. */
+/* Capped and scrollable rather than `overflow: hidden` -- a long enough
+   list (a merge-into picker against a few hundred tags, an "Add to board"
+   picker against a few dozen boards) used to just get silently clipped at
+   whatever height happened to fit between the trigger and the viewport
+   edge, with no way to reach the rest. `openActionMenu`'s own positioning
+   math (actionMenu.ts) measures the panel via `getBoundingClientRect()`
+   *after* this applies, so it still flips/clamps correctly against the
+   now-capped height. `overscroll-behavior: contain` stops the scroll from
+   chaining to the page underneath once this reaches its own top/bottom --
+   without it, wheeling past the end of the list scrolled the whole page
+   behind the menu instead of just stopping. */
 .action-menu-panel {
   position: fixed; z-index: var(--z-overlay-panel); min-width: 190px; max-width: 260px;
   background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md);
-  box-shadow: var(--elevation-3); padding: var(--space-1); overflow: hidden;
+  box-shadow: var(--elevation-3); padding: var(--space-1);
+  max-height: min(420px, calc(100vh - 16px)); overflow-y: auto; overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 .action-menu-section { padding: var(--space-1) 0; }
 .action-menu-section + .action-menu-section {
@@ -590,7 +607,7 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
    the way clicking a button item does everywhere else in actionMenu.ts. */
 .action-menu-checkbox { cursor: pointer; white-space: normal; }
 .action-menu-checkbox input[type="checkbox"] { flex-shrink: 0; margin: 0; }
-.action-menu-checkbox-list { max-height: 200px; overflow-y: auto; }
+.action-menu-checkbox-list { max-height: 200px; overflow-y: auto; overscroll-behavior: contain; }
 
 /* Pineart-only extension (not part of Curodav's own component, kept
    deliberately -- see actionMenu.ts's module doc comment): groups
@@ -880,7 +897,7 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 .board-card:hover .board-cover { box-shadow: var(--elevation-3); transform: scale(1.015); }
 .board-card .board-name { font-size: 13.5px; font-weight: 600; margin-top: 9px; display: flex; align-items: center; gap: 6px; }
 .board-card .board-desc {
-  font-size: 12px; color: var(--color-text-muted); margin-top: 2px; display: -webkit-box;
+  font-size: 12px; color: var(--color-text-muted); margin-top: 4px; display: -webkit-box;
   -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; background: var(--color-surface-2); color: var(--color-text-muted); }
@@ -1133,7 +1150,7 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 /* Smaller tiles than `.status-card-grid`'s own settings-page sizing (a link
    card carries much less than a status card -- no status line, no
    description paragraph) so several fit per row instead of two or three. */
-.links-group .status-card-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.links-group .status-card-grid { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
 .link-card { display: flex; flex-direction: column; padding: 10px 12px 12px; transition: var(--transition-fast); }
 .link-card:hover { box-shadow: var(--elevation-2); transform: translateY(-1px); }
 .link-card .status-card-header { margin-bottom: 8px; }
@@ -1215,7 +1232,7 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
   display: none; position: fixed; z-index: 310;
   background: var(--color-bg); border: 1px solid var(--color-border);
   border-radius: var(--radius-sm); box-shadow: var(--elevation-3);
-  max-height: 240px; overflow-y: auto;
+  max-height: 240px; overflow-y: auto; overscroll-behavior: contain;
 }
 .tag-suggestions.open { display: block; }
 .tag-suggestion {

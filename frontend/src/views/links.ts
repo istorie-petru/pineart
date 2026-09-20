@@ -15,10 +15,20 @@ import { api } from "../api";
 import { toggleActionMenu } from "../components/actionMenu";
 import { openLinkModal } from "../components/linkModal";
 import { icon } from "../icons";
+import { store } from "../store";
 import type { Link } from "../types";
 import { el, emptyStateMessage, guard, toast } from "../ui";
 
 const UNGROUPED = "Ungrouped";
+
+// Same NSFW mode as the image grid (Settings → Collection → "Switch to NSFW
+// mode", see services/queries.build_query on the backend) applied to a link
+// group instead of a tag: a group whose name contains "NSFW" anywhere --
+// "Homoromantic (NSFW)", say -- is hidden by default and shown exclusively
+// once the mode is on, the same off/on shape as the image filter. A plain
+// substring match on the group name rather than a dedicated flag, since
+// links have no tags of their own to mark.
+const NSFW_GROUP_PATTERN = /nsfw/i;
 
 function groupLinks(links: Link[]): Map<string, Link[]> {
   const groups = new Map<string, Link[]>();
@@ -125,12 +135,21 @@ export function renderLinksView(root: HTMLElement): () => void {
     const links = await api.listLinks();
     body.replaceChildren();
 
-    if (!links.length) {
-      body.append(emptyStateMessage("No links yet — add one to get started."));
+    const nsfwMode = Boolean(store.settings?.["collection.nsfw_mode"]);
+    const visible = links.filter((link) =>
+      nsfwMode ? NSFW_GROUP_PATTERN.test(link.group_name ?? "") : !NSFW_GROUP_PATTERN.test(link.group_name ?? ""),
+    );
+
+    if (!visible.length) {
+      body.append(
+        emptyStateMessage(
+          nsfwMode ? "No NSFW-grouped links yet." : "No links yet — add one to get started.",
+        ),
+      );
       return;
     }
 
-    for (const [groupName, groupItems] of groupLinks(links)) {
+    for (const [groupName, groupItems] of groupLinks(visible)) {
       const groupSection = el("div", { class: "links-group" });
       const groupTitle = el("h3", { class: "links-group-title" });
       groupTitle.textContent = groupName;

@@ -32,6 +32,12 @@ DEFAULTS: dict[str, Any] = {
     # silent infinite fetch; this makes that a preference rather than a fixed
     # decision, and the button remains either way.
     "collection.infinite_scroll": True,
+    # Off by default: ordinary browsing (Feed and boards alike) skips items
+    # carrying an NSFW-flagged tag. Flipping this on reverses the filter
+    # instead of clearing it -- browsing then shows *only* NSFW-tagged items
+    # (Settings -> Collection -> "Switch to NSFW mode") -- see
+    # `services/queries.build_query`.
+    "collection.nsfw_mode": False,
     # Collection -> Storage
     "storage.convert_png_to_webp": True,
     "storage.preserve_original_bytes": False,
@@ -102,6 +108,7 @@ _TYPES: dict[str, type | tuple[type, ...]] = {
     "collection.page_size": int,
     "collection.default_sort": str,
     "collection.infinite_scroll": bool,
+    "collection.nsfw_mode": bool,
     "storage.convert_png_to_webp": bool,
     "storage.preserve_original_bytes": bool,
     "storage.trash_retention_days": int,

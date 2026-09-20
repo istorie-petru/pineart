@@ -86,7 +86,7 @@ def graph(db: Session = Depends(get_db)) -> TagGraph:
                 color=t.color,
                 category=TagCategoryOut.model_validate(t.category) if t.category else None,
                 link_url=t.link_url,
-                hide_from_feed=t.hide_from_feed,
+                nsfw=t.nsfw,
                 icon=t.icon,
                 usage_count=counts.get(t.id, 0),
             )
@@ -349,8 +349,8 @@ def patch_tag(tag_id: int, payload: TagPatch, db: Session = Depends(get_db)) -> 
         if db.get(TagCategory, payload.category_id) is None:
             raise HTTPException(status_code=404, detail="Category not found")
         tag.category_id = payload.category_id
-    if payload.hide_from_feed is not None:
-        tag.hide_from_feed = payload.hide_from_feed
+    if payload.nsfw is not None:
+        tag.nsfw = payload.nsfw
     if "icon" in payload.model_fields_set:
         tag.icon = payload.icon
     db.commit()

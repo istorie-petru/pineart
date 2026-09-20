@@ -79,7 +79,7 @@ def test_graph_payload_matches_the_d3_binding(client):
 
     assert set(graph) == {"nodes", "edges"}
     assert set(graph["nodes"][0]) == {
-        "id", "name", "color", "category", "link_url", "hide_from_feed", "icon", "usage_count",
+        "id", "name", "color", "category", "link_url", "nsfw", "icon", "usage_count",
     }
     assert set(graph["edges"][0]) == {"source", "target", "weight"}
     # tagGraph.ts uses forceLink().id(d => d.id), so source/target must be the

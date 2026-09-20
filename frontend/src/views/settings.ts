@@ -315,7 +315,21 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
 
     storage.append(convert, preserve, retentionRow);
 
-    form.append(browsing, storage);
+    // Reverses the NSFW filter (see `Tag.nsfw` and services/queries.build_query)
+    // instead of just clearing it: off (default) hides NSFW-tagged items and
+    // NSFW-titled link groups everywhere -- Feed, boards, Links -- while on
+    // shows *only* that content, the same switch either direction so there's
+    // one control rather than a separate "show NSFW"/"hide everything else" pair.
+    const privacy = el("div", { class: "settings-group" }, "<h4>Privacy</h4>");
+    const nsfwRow = toggleRow("Switch to NSFW mode", Boolean(settings["collection.nsfw_mode"]), (value) =>
+      store.saveSettings({ "collection.nsfw_mode": value }),
+    );
+    const nsfwHint = el("p", { class: "hint", style: "margin-top:-4px;" });
+    nsfwHint.textContent =
+      "Off shows everything except tags marked NSFW (Settings → Tags) and link groups with \"NSFW\" in their name. On shows only that content.";
+    privacy.append(nsfwRow, nsfwHint);
+
+    form.append(browsing, storage, privacy);
     panel.append(form);
   }
 
@@ -587,18 +601,19 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
     linkRow.append(linkRowLabel, linkInput);
     linkRow.hidden = true;
 
-    // Opts this tag out of passive browsing — the item still exists, is
-    // still tagged, and still shows up in any board it belongs to or in a
-    // search that names the tag directly; it just stops appearing in the
-    // ambient Feed scroll.
+    // Marks this tag as NSFW — the item still exists and is still tagged,
+    // but stops appearing in ordinary browsing (Feed and boards alike)
+    // unless NSFW mode (Settings → Collection) is on, or a search names the
+    // tag directly.
     const hideRow = el("div", { class: "field-row" });
     const hideRowLabel = el("span");
-    hideRowLabel.textContent = "Hide from Feed";
-    const hideSwitch = toggleSwitch(false, undefined, "Hide from Feed");
+    hideRowLabel.textContent = "NSFW tag";
+    const hideSwitch = toggleSwitch(false, undefined, "NSFW tag");
     const hideInput = hideSwitch.input;
     hideRow.append(hideRowLabel, hideSwitch.element);
     const hideHint = el("p", { class: "hint", style: "margin-top:-4px;" });
-    hideHint.textContent = "Still shows up in boards and in a search that names it directly.";
+    hideHint.textContent =
+      "Hidden from the Feed and boards by default — switch on NSFW mode in Collection settings to see it, or search for it by name.";
 
     // Merge: distinct from rename above — rename changes what this tag is
     // called, merge collapses this tag and a different one into a single
@@ -944,7 +959,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
       refreshCategorySelect(node.category?.id ?? null);
       linkRow.hidden = !node.category?.links_enabled;
       linkInput.value = node.link_url ?? "";
-      hideInput.checked = node.hide_from_feed ?? false;
+      hideInput.checked = node.nsfw ?? false;
       tagIconPicker.set(node.icon ?? null);
 
       const mergeTargets = store.tags.filter((other) => other.id !== node.id);
@@ -1004,9 +1019,9 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
       "change",
       guard(async () => {
         if (!selectedTag) return;
-        const updated = await api.patchTag(selectedTag.id, { hide_from_feed: hideInput.checked });
-        selectedTag.hide_from_feed = updated.hide_from_feed;
-        toast(hideInput.checked ? "Hidden from the Feed" : "Visible in the Feed again");
+        const updated = await api.patchTag(selectedTag.id, { nsfw: hideInput.checked });
+        selectedTag.nsfw = updated.nsfw;
+        toast(hideInput.checked ? "Marked as NSFW" : "No longer marked as NSFW");
       }),
     );
     viewImages.addEventListener("click", () => {

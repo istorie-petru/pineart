@@ -290,7 +290,7 @@ export const api = {
       category_id?: number;
       clear_category?: boolean;
       link_url?: string;
-      hide_from_feed?: boolean;
+      nsfw?: boolean;
       icon?: string | null;
     },
   ) => request<Tag>(`/api/tags/${id}`, json("PATCH", body)),

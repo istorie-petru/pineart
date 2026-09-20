@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Board, BoardItem, BoardQueryTag, Item, ItemTag, Tag
 from . import search
+from . import settings_store
 from . import tags as tag_service
 
 # `title` is coalesced to '' rather than sorted raw: SQL comparisons against NULL
@@ -234,25 +235,31 @@ def build_query(
     if untagged_only:
         stmt = stmt.where(~select(ItemTag.item_id).where(ItemTag.item_id == Item.id).exists())
 
-    # A tag marked "hide from feed" (Settings → Tags → click the tag in the
-    # graph) is filtered out of passive browsing — the Feed, and any other
-    # listing with no board of its own — but not out of a board someone
-    # deliberately built, and not out of a search that names the tag
-    # explicitly: asking for it by name is exactly how you'd go looking for
-    # something you chose to keep out of the ambient scroll. Trash is
-    # excluded too; it is a maintenance view, not browsing.
-    if board is None and not only_deleted:
+    # NSFW mode (Settings → Collection → "Switch to NSFW mode"): a tag marked
+    # `Tag.nsfw` opts its items out of ordinary browsing by default — the
+    # Feed *and* any board, not just passive browsing with no board of its
+    # own — unless the mode is switched on, in which case browsing shows
+    # *only* NSFW-tagged items instead of excluding them. Either way, a
+    # search that names the tag explicitly still finds it: asking for it by
+    # name is exactly how you'd go looking for something the ambient default
+    # keeps out of view. Trash is excluded from this entirely; it is a
+    # maintenance view, not browsing. Untagged items never carry an NSFW tag,
+    # so they pass through both branches unaffected.
+    if not only_deleted:
         requested = {name.lower() for name in parsed.tags}
-        hidden_tag_ids = [
-            hidden.id
-            for hidden in db.scalars(select(Tag).where(Tag.hide_from_feed.is_(True))).all()
-            if hidden.slug.lower() not in requested and hidden.name.lower() not in requested
+        nsfw_tag_ids = [
+            nsfw_tag.id
+            for nsfw_tag in db.scalars(select(Tag).where(Tag.nsfw.is_(True))).all()
+            if nsfw_tag.slug.lower() not in requested and nsfw_tag.name.lower() not in requested
         ]
-        if hidden_tag_ids:
-            hidden_exists = select(ItemTag.item_id).where(
-                ItemTag.item_id == Item.id, ItemTag.tag_id.in_(hidden_tag_ids)
+        if nsfw_tag_ids:
+            nsfw_exists = select(ItemTag.item_id).where(
+                ItemTag.item_id == Item.id, ItemTag.tag_id.in_(nsfw_tag_ids)
             )
-            stmt = stmt.where(~hidden_exists.exists())
+            if bool(settings_store.get(db, "collection.nsfw_mode")):
+                stmt = stmt.where(nsfw_exists.exists())
+            else:
+                stmt = stmt.where(~nsfw_exists.exists())
 
     if board is not None:
         if board.is_dynamic:

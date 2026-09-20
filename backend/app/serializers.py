@@ -10,7 +10,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, object_session
 
-from .models import Board, BoardItem, BoardQueryTag, BoardSubboardTag, Item, Tag
+from .models import Board, BoardQueryTag, BoardSubboardTag, Item, Tag
 from .schemas import BoardOut, ItemOut, ItemUrls, TagOut
 
 
@@ -80,17 +80,25 @@ def item_out(item: Item, display: Item | None = None) -> ItemOut:
 
 
 def board_out(db: Session, board: Board) -> BoardOut:
-    from .services import queries  # local import: queries imports models, not this module
+    # Local import: queries (and search, for the empty ParsedQuery below)
+    # import models, not this module.
+    from .services import queries, search
+
+    # Routed through `build_query` (rather than a bespoke count query per
+    # board kind) so this count always matches what the board's own item
+    # listing actually shows — deleted items excluded and NSFW-tagged items
+    # filtered per Settings → Collection → "Switch to NSFW mode", the same as
+    # every other item listing.
+    count = (
+        db.scalar(
+            select(func.count()).select_from(
+                queries.build_query(db, parsed=search.ParsedQuery(), board=board).subquery()
+            )
+        )
+        or 0
+    )
 
     if board.is_dynamic:
-        count = (
-            db.scalar(
-                select(func.count()).select_from(
-                    queries.dynamic_board_item_ids(db, board).subquery()
-                )
-            )
-            or 0
-        )
         rows = db.execute(
             select(Tag, BoardQueryTag.match_mode)
             .join(BoardQueryTag, BoardQueryTag.tag_id == Tag.id)
@@ -99,15 +107,6 @@ def board_out(db: Session, board: Board) -> BoardOut:
         query_tags = [TagOut.model_validate(r[0]) for r in rows]
         match_mode = rows[0][1] if rows else "any"
     else:
-        count = (
-            db.scalar(
-                select(func.count())
-                .select_from(BoardItem)
-                .join(Item, Item.id == BoardItem.item_id)
-                .where(BoardItem.board_id == board.id, Item.is_deleted.is_(False))
-            )
-            or 0
-        )
         query_tags = []
         match_mode = "any"
 

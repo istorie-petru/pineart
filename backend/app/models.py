@@ -145,11 +145,12 @@ class Tag(Base):
     # `links_enabled`, but not enforced here — clearing a tag's category should
     # not have to silently destroy a URL someone typed in.
     link_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Opt a tag out of passive browsing (see `services/queries.build_query`):
-    # an item carrying this tag is skipped by the Feed and by any other
-    # listing with no board of its own, but still shows up in a board it
-    # belongs to and in a search that names the tag explicitly.
-    hide_from_feed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Marks this tag as NSFW content (see `services/queries.build_query`): an
+    # item carrying this tag is skipped by ordinary browsing -- Feed and any
+    # board alike -- unless NSFW mode (Settings -> Collection) is switched
+    # on, in which case browsing shows *only* NSFW-tagged items. Either way a
+    # search that names the tag explicitly still finds it.
+    nsfw: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # This tag's own icon. Falls back to the category's icon when unset — see
     # `TagCategory.icon` — resolved client-side the same way `color` is.
     icon: Mapped[str | None] = mapped_column(String(32), nullable=True)

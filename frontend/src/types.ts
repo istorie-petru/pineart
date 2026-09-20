@@ -21,9 +21,10 @@ export interface Tag {
   /** A single outbound link (creator shop/profile/portfolio). Only offered
    * for editing when the tag's category has `links_enabled`. */
   link_url?: string | null;
-  /** Opts this tag's items out of the Feed while leaving them visible in any
-   * board they belong to and in a search that names the tag explicitly. */
-  hide_from_feed?: boolean;
+  /** Marks this tag as NSFW — opts its items out of ordinary browsing (Feed
+   * and boards alike) unless NSFW mode is on, while a search that names the
+   * tag explicitly still finds it. */
+  nsfw?: boolean;
   /** This tag's own icon — see `ui.ts`'s `tagIconKey` for the fallback to
    * the category's icon. */
   icon?: string | null;
@@ -122,8 +123,8 @@ export interface GraphNode {
   color: string | null;
   category?: TagCategory | null;
   link_url?: string | null;
-  /** Opts this tag's items out of the Feed — see api.patchTag. */
-  hide_from_feed?: boolean;
+  /** Marks this tag as NSFW — see api.patchTag. */
+  nsfw?: boolean;
   icon?: string | null;
   usage_count: number;
 }
@@ -242,6 +243,10 @@ export interface Settings {
   "collection.page_size": number;
   "collection.default_sort": SortKey;
   "collection.infinite_scroll": boolean;
+  /** Off by default: ordinary browsing (Feed and boards alike) skips
+   * NSFW-tagged items and NSFW-titled link groups. On reverses the filter —
+   * browsing shows *only* NSFW-tagged content instead. */
+  "collection.nsfw_mode": boolean;
   "storage.convert_png_to_webp": boolean;
   "storage.preserve_original_bytes": boolean;
   "storage.trash_retention_days": number;

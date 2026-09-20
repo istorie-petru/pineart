@@ -10,7 +10,7 @@ from ..db import get_db
 from ..models import Board, BoardItem, BoardQueryTag, BoardSubboardTag, Item, ItemTag, Tag
 from ..schemas import BoardIn, BoardItemsIn, BoardOut, BoardPatch, CitationExport, SubboardTagIn, TagOut
 from ..serializers import board_out
-from ..services import citation, queries, search
+from ..services import citation, queries, search, settings_store
 from ..services.tags import slugify
 
 router = APIRouter(prefix="/api/boards", tags=["boards"])
@@ -21,6 +21,23 @@ def _get_board(db: Session, board_id: int) -> Board:
     if board is None:
         raise HTTPException(status_code=404, detail="Board not found")
     return board
+
+
+def _is_nsfw_dynamic_board(db: Session, board: Board) -> bool:
+    """A saved-search board built from at least one NSFW-flagged tag.
+
+    Only meaningful for dynamic boards — a manual board's own NSFW pins are
+    filtered per-item by `build_query`, not by hiding the board itself.
+    """
+    if not board.is_dynamic:
+        return False
+    tag_ids = db.scalars(select(BoardQueryTag.tag_id).where(BoardQueryTag.board_id == board.id)).all()
+    if not tag_ids:
+        return False
+    return (
+        db.scalar(select(Tag.id).where(Tag.id.in_(tag_ids), Tag.nsfw.is_(True)).limit(1))
+        is not None
+    )
 
 
 def _unique_slug(db: Session, name: str) -> str:
@@ -45,6 +62,11 @@ def _write_query_tags(db: Session, board: Board, query_tags) -> None:
 @router.get("", response_model=list[BoardOut])
 def list_boards(db: Session = Depends(get_db)) -> list[BoardOut]:
     boards = db.scalars(select(Board).order_by(Board.position, Board.created_at)).all()
+    # A dynamic board built from an NSFW tag is a board *about* NSFW content —
+    # it should only be present in this listing while NSFW mode is on, same
+    # as the items that would populate it (see `queries.build_query`).
+    if not bool(settings_store.get(db, "collection.nsfw_mode")):
+        boards = [b for b in boards if not _is_nsfw_dynamic_board(db, b)]
     return [board_out(db, b) for b in boards]
 
 

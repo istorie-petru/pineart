@@ -69,9 +69,10 @@ class TagOut(BaseModel):
     #: editing in the UI when the tag's category has `links_enabled`, but the
     #: value travels on every tag regardless — see the model docstring.
     link_url: str | None = None
-    #: Opts this tag's items out of passive browsing (the Feed) — see the
-    #: model docstring and `services/queries.build_query`.
-    hide_from_feed: bool = False
+    #: Marks this tag as NSFW — opts its items out of ordinary browsing
+    #: (Feed and boards alike) unless NSFW mode is on. See the model
+    #: docstring and `services/queries.build_query`.
+    nsfw: bool = False
     #: This tag's own icon, if it has one. The category's icon is the default
     #: for every tag under it — see `TagCategoryOut.icon` — but the frontend
     #: resolves that fallback (same precedence as `color`); this field is
@@ -111,7 +112,7 @@ class TagPatch(BaseModel):
     clear_category: bool = False
     #: Same "always applied when present" rule as `color`: send `""` to clear.
     link_url: str | None = None
-    hide_from_feed: bool | None = None
+    nsfw: bool | None = None
     #: Distinguished from "omitted" via `model_fields_set`, same as `link_url`
     #: — `null` clears it back to inheriting the category's icon (if any).
     icon: str | None = None
@@ -303,7 +304,7 @@ class GraphNode(BaseModel):
     color: str | None
     category: TagCategoryOut | None = None
     link_url: str | None = None
-    hide_from_feed: bool = False
+    nsfw: bool = False
     icon: str | None = None
     usage_count: int
 
