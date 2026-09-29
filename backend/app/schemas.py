@@ -432,6 +432,21 @@ class TagMergeResult(BaseModel):
     items_reassigned: int
 
 
+class TagLinkIn(BaseModel):
+    tag_name: str = Field(min_length=1, max_length=120)
+
+
+class TagLinkResult(BaseModel):
+    tag_id: int
+    linked_tag_id: int
+    linked_tag: TagOut
+    items_tagged: int
+
+
+class TagClearColorsResult(BaseModel):
+    cleared: int
+
+
 class CitationEntry(BaseModel):
     item_id: int
     title: str | None

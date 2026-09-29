@@ -18,9 +18,16 @@ import { Grid } from "../components/grid";
 import { openGraphRuleModal } from "../components/graphRuleModal";
 import { createIconPicker } from "../components/iconPicker";
 import { openItemModal } from "../components/itemModal";
-import { DEFAULT_GRAPH_FORCES, renderTagGraph, type TagGraphForces, type TagGraphHandle } from "../components/tagGraph";
+import {
+  DEFAULT_GRAPH_FORCES,
+  renderTagGraph,
+  type TagGraphForces,
+  type TagGraphHandle,
+  type TagGraphOptions,
+} from "../components/tagGraph";
 import { createSelect } from "../components/select";
 import { openSearchTemplateModal } from "../components/searchTemplateModal";
+import { TagInput } from "../components/tagInput";
 import { DECORATIVE_ICON_KEYS, icon } from "../icons";
 import { ACCENT_PRESETS } from "../palette";
 import * as router from "../router";
@@ -39,6 +46,12 @@ function graphForcesFromSettings(): TagGraphForces {
     linkStrength: settings["tagGraph.link_strength"] ?? DEFAULT_GRAPH_FORCES.linkStrength,
     centerStrength: settings["tagGraph.center_strength"] ?? DEFAULT_GRAPH_FORCES.centerStrength,
   };
+}
+
+/** Off until the user opts in — see `tagGraph.show_categories` in
+ * settings_store.DEFAULTS on the backend. */
+function showCategoriesFromSettings(): boolean {
+  return store.settings?.["tagGraph.show_categories"] ?? false;
 }
 
 export interface SettingsViewHandle {
@@ -433,6 +446,26 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
       sidebarPanels.forEach((sidebarPanel, id) => sidebarPanel.classList.toggle("active", id === tabId));
     }
 
+    // ---- Show categories: overlays one extra node per category on the graph
+    // above, sized by its tags' combined usage and colored with the
+    // category's own color, linked only to the tags actually filed under it
+    // — never to other categories, and never by co-occurrence. Off by
+    // default since it adds nodes/edges the layout wasn't designed around. ----
+    const showCategoriesRow = el("div", { class: "field-row" });
+    const showCategoriesLabel = el("span");
+    showCategoriesLabel.textContent = "Show categories in graph";
+    const showCategoriesSwitch = toggleSwitch(showCategoriesFromSettings(), undefined, "Show categories in graph");
+    showCategoriesRow.append(showCategoriesLabel, showCategoriesSwitch.element);
+    showCategoriesSwitch.input.addEventListener(
+      "change",
+      guard(async () => {
+        const showCategories = showCategoriesSwitch.input.checked;
+        await store.saveSettings({ "tagGraph.show_categories": showCategories });
+        await refreshGraph();
+        toast(showCategories ? "Categories shown in graph" : "Categories hidden from graph");
+      }),
+    );
+
     // ---- Graph physics: how spread out and how loosely bonded the layout
     // feels is a matter of taste, not a fixed constant — drag a slider to
     // preview live against the canvas above, release to save. ----
@@ -615,6 +648,28 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
     hideHint.textContent =
       "Hidden from the Feed and boards by default — switch on NSFW mode in Collection settings to see it, or search for it by name.";
 
+    // Link: distinct from merge below — merge collapses this tag and another
+    // into one identity and deletes this one, link leaves both standing and
+    // just adds the target to every item this tag is already on ("Haikyu" ->
+    // "Sports anime", where both tags still mean something on their own).
+    // Reuses the same free-text + suggestions input every other tag field in
+    // the app uses, in its single-pick mode, so picking or typing a brand-new
+    // name applies immediately without a separate submit step.
+    const linkRowWrap = el("div", { class: "field-col", style: "margin-top:10px;" });
+    const linkRowLabel2 = el("label");
+    linkRowLabel2.textContent = "Link to (existing or new tag)";
+    const linkToInput = new TagInput({
+      chips: false,
+      placeholder: "tag name",
+      onPick: guard(async (name) => {
+        if (!selectedTag) return;
+        const result = await api.linkTag(selectedTag.id, name);
+        await store.loadTags();
+        toast(`Linked — ${result.items_tagged} item(s) also tagged "${result.linked_tag.name}"`);
+      }),
+    });
+    linkRowWrap.append(linkRowLabel2, linkToInput.element);
+
     // Merge: distinct from rename above — rename changes what this tag is
     // called, merge collapses this tag and a different one into a single
     // identity (see advance.md §10, "landscape" / "landscapes"). A plain
@@ -690,7 +745,9 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
       // Actions below this point, not fields — merge-into stays paired
       // with its own Merge button rather than separated by appearanceRow,
       // the same "pick a target, act on it immediately below" pattern as
-      // View images/Delete tag.
+      // View images/Delete tag. Link-to comes first, as the non-destructive
+      // sibling of merge just below it.
+      linkRowWrap,
       mergeRow,
       mergeBtn,
       viewImages,
@@ -703,6 +760,8 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
     sidebarPanels.get("edit")!.append(emptyHint, editor);
     sidebarPanels.get("categories")!.append(categoriesHint, categoryListEl, addCategoryBtn);
     sidebarPanels.get("rules")!.append(
+      showCategoriesRow,
+      el("div", { class: "tags-sidebar-divider" }),
       physicsHint,
       spread.row,
       distance.row,
@@ -768,6 +827,36 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
     );
     scanDupesBtn.addEventListener("click", guard(() => renderNearDuplicatesInto(dupeList)));
 
+    // Resets colors set directly on a tag (the `colorPicker` above), not the
+    // category colors those tags fall back to without one — see `tagColor`'s
+    // precedence (own color, then category, then palette) in ui.ts.
+    const clearColorsHint = el("p", { class: "view-desc" });
+    clearColorsHint.textContent =
+      "Removes every color assigned directly to a tag. Category colors are untouched — affected tags fall back to their category's color, or the default palette.";
+    const clearColorsBtn = el(
+      "button",
+      { class: "btn btn-outlined btn-block" },
+      `${icon("palette", true)} Clear all tag colors`,
+    );
+    clearColorsBtn.addEventListener(
+      "click",
+      guard(async () => {
+        const ok = await confirmDialog(
+          "Remove every color assigned directly to a tag? Category colors are untouched. This cannot be undone.",
+          "Clear colors",
+        );
+        if (!ok) return;
+        const result = await api.clearTagColors();
+        await store.loadTags();
+        if (selectedTag) {
+          selectedTag.color = null;
+          colorPicker.setValue("#457b9d");
+        }
+        await refreshGraph();
+        toast(`Cleared color from ${result.cleared} tag(s)`);
+      }),
+    );
+
     sidebarPanels.get("cleanup")!.append(
       unusedHint,
       unusedList,
@@ -776,6 +865,9 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
       dupeHint,
       dupeList,
       scanDupesBtn,
+      el("div", { class: "tags-sidebar-divider" }),
+      clearColorsHint,
+      clearColorsBtn,
     );
     void renderUnusedTags();
 
@@ -939,11 +1031,26 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
       return;
     }
 
+    /** Category nodes open the same edit modal as the "Edit" button on the
+     * Categories tab — a click on a tag opens that tag, so a click on a
+     * category opens that category, rather than doing nothing. */
+    function tagGraphOptions(): TagGraphOptions {
+      return {
+        showCategories: showCategoriesFromSettings(),
+        onSelectCategory: (category) => {
+          openCategoryModal(category, guard(async () => {
+            await loadCategories();
+            await refreshGraph();
+          }));
+        },
+      };
+    }
+
     /** Rebuild the graph in place after a structural change (e.g. a rule). */
     refreshGraph = async () => {
       const fresh = await api.tagGraph();
       graph?.destroy();
-      graph = renderTagGraph(canvas, fresh, select, graphForcesFromSettings());
+      graph = renderTagGraph(canvas, fresh, select, graphForcesFromSettings(), tagGraphOptions());
     };
 
     const select = (node: GraphNode) => {
@@ -969,7 +1076,7 @@ export function renderSettings(root: HTMLElement, activeTab: string): SettingsVi
       );
     };
 
-    graph = renderTagGraph(canvas, data, select, graphForcesFromSettings());
+    graph = renderTagGraph(canvas, data, select, graphForcesFromSettings(), tagGraphOptions());
 
     // Editing updates the node in place, so it is unmistakable which node is
     // being edited without navigating anywhere.

@@ -63,6 +63,12 @@ DEFAULTS: dict[str, Any] = {
     # this force and pushed only by charge, so it needs to be strong enough on
     # its own — 0.18 let isolated tags drift out toward the edge of the canvas.
     "tagGraph.center_strength": 0.1,
+    # Off by default: an extra node per category, sized by its tags' combined
+    # usage and linked only to the tags actually filed under it, overlaid on
+    # the ordinary co-occurrence graph. Opt-in because it adds nodes and edges
+    # unrelated to co-occurrence, which changes the picture the layout settles
+    # into rather than just how it looks.
+    "tagGraph.show_categories": False,
 }
 
 # Suggested starting points, offered in the UI as copy-pasteable text. Not
@@ -122,6 +128,7 @@ _TYPES: dict[str, type | tuple[type, ...]] = {
     "tagGraph.link_distance": (int, float),
     "tagGraph.link_strength": (int, float),
     "tagGraph.center_strength": (int, float),
+    "tagGraph.show_categories": bool,
 }
 
 # (key, min, max) — checked generically below rather than as one-off `if`

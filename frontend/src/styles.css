@@ -940,6 +940,11 @@ p.view-desc { color: var(--color-text-muted); font-size: 13px; margin: 0 0 18px;
 }
 .graph-recenter-btn:hover { background: var(--color-surface-2); }
 .graph-node text { fill: var(--color-text-muted); font-size: 10px; user-select: none; }
+/* Category nodes — an opt-in overlay on the graph, see tagGraph.ts's
+   `showCategories` option. Bold label is the only CSS distinction; color, the
+   surface-colored halo ring and the dashed membership edges are drawn
+   directly on the SVG elements since they depend on per-node data. */
+.graph-node--category text { font-weight: 700; }
 
 /* Tags panel: graph on the left, one sidebar card on the right holding the
    tag editor, categories and rules/physics as tabs instead of four stacked

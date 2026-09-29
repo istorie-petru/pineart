@@ -29,14 +29,37 @@ import { select, type Selection } from "d3-selection";
 import { zoom as d3zoom, zoomIdentity } from "d3-zoom";
 
 import { icon } from "../icons";
-import type { GraphEdge, GraphNode } from "../types";
+import type { GraphEdge, GraphNode, TagCategory } from "../types";
 import { el, tagColor } from "../ui";
 
-interface Node extends SimulationNodeDatum, GraphNode {
+/**
+ * Tag nodes and category nodes are drawn in the same simulation, but they come
+ * from independent id sequences on the backend — tag 3 and category 3 both
+ * exist. `graphId` (not the raw numeric `id`) is what d3-force and the DOM
+ * selections key off of, so the two spaces can never collide; `id` stays
+ * around only so a click can be mapped back to the real tag or category.
+ */
+interface Node extends SimulationNodeDatum, Omit<GraphNode, "id"> {
+  kind: "tag" | "category";
+  graphId: string;
+  id: number;
   radius: number;
+  /** Present only on category nodes — the full record, for the click handler. */
+  categoryRecord?: TagCategory;
 }
 interface Edge extends SimulationLinkDatum<Node> {
   weight: number;
+  /** Co-occurrence edges come from the backend; category edges are synthesized
+   * client-side from each tag's `category` field — see `renderTagGraph`. */
+  kind: "cooccurrence" | "category";
+}
+
+export interface TagGraphOptions {
+  /** Overlay one extra node per category, sized by its tags' combined usage
+   * and linked only to the tags actually filed under it. */
+  showCategories?: boolean;
+  /** Called instead of `onSelect` when a category node is clicked. */
+  onSelectCategory?: (category: TagCategory) => void;
 }
 
 /**
@@ -89,23 +112,75 @@ export function renderTagGraph(
   data: { nodes: GraphNode[]; edges: GraphEdge[] },
   onSelect: (node: GraphNode) => void,
   forces: TagGraphForces = DEFAULT_GRAPH_FORCES,
+  options: TagGraphOptions = {},
 ): TagGraphHandle {
   container.replaceChildren();
   const width = container.clientWidth || 700;
   const height = container.clientHeight || 460;
 
+  // A category's own usage isn't tracked anywhere — it's derived here as the
+  // combined usage of the tags actually filed under it, so a category
+  // covering several popular tags reads as bigger than any one of them, the
+  // same "size reflects weight" idea the tag nodes already use.
+  const categoryGroups = new Map<number, { category: TagCategory; usage: number; tagIds: number[] }>();
+  if (options.showCategories) {
+    for (const tagNode of data.nodes) {
+      if (!tagNode.category) continue;
+      const group = categoryGroups.get(tagNode.category.id) ?? {
+        category: tagNode.category,
+        usage: 0,
+        tagIds: [],
+      };
+      group.usage += tagNode.usage_count;
+      group.tagIds.push(tagNode.id);
+      categoryGroups.set(tagNode.category.id, group);
+    }
+  }
+
   // Node size scales with usage, with a floor so a brand-new tag is still
   // clickable and a ceiling so one dominant tag doesn't swallow the canvas.
-  const maxUsage = Math.max(1, ...data.nodes.map((n) => n.usage_count));
+  // Category totals share the same scale as tag usage so the two stay
+  // visually comparable rather than living on separate axes.
+  const maxUsage = Math.max(
+    1,
+    ...data.nodes.map((n) => n.usage_count),
+    ...[...categoryGroups.values()].map((g) => g.usage),
+  );
   const nodes: Node[] = data.nodes.map((node) => ({
     ...node,
+    kind: "tag",
+    graphId: `t${node.id}`,
     radius: 12 + 18 * Math.sqrt(node.usage_count / maxUsage),
   }));
   const edges: Edge[] = data.edges.map((edge) => ({
-    source: edge.source,
-    target: edge.target,
+    source: `t${edge.source}`,
+    target: `t${edge.target}`,
     weight: edge.weight,
+    kind: "cooccurrence",
   }));
+
+  // Category nodes and their membership edges. Only ever linked to the tags
+  // actually filed under that category — never to other categories, and
+  // never following co-occurrence, so a category's neighbourhood in the
+  // graph is exactly "its own tags", nothing inferred.
+  for (const group of categoryGroups.values()) {
+    nodes.push({
+      kind: "category",
+      graphId: `c${group.category.id}`,
+      id: group.category.id,
+      name: group.category.name,
+      color: group.category.color,
+      usage_count: group.usage,
+      link_url: null,
+      nsfw: false,
+      icon: group.category.icon ?? null,
+      categoryRecord: group.category,
+      radius: 12 + 18 * Math.sqrt(group.usage / maxUsage),
+    });
+    for (const tagId of group.tagIds) {
+      edges.push({ source: `c${group.category.id}`, target: `t${tagId}`, weight: 1, kind: "category" });
+    }
+  }
 
   const svg = select(container)
     .append("svg")
@@ -136,7 +211,7 @@ export function renderTagGraph(
     .force(
       "link",
       forceLink<Node, Edge>(edges)
-        .id((d) => d.id)
+        .id((d) => d.graphId)
         .distance((d) => Math.max(50, forces.linkDistance - d.weight * 6))
         .strength(forces.linkStrength),
     )
@@ -162,8 +237,13 @@ export function renderTagGraph(
     .selectAll<SVGLineElement, Edge>("line")
     .data(edges)
     .join("line")
-    .attr("stroke", "#999")
-    .attr("stroke-opacity", 0.45)
+    // Category edges are tinted with the category's own color (dashed, so a
+    // category's "own its tags" relation reads as a different kind of line
+    // than co-occurrence, not just another gray edge among many) — by this
+    // point d3-force has already resolved `source` into the actual node.
+    .attr("stroke", (d) => (d.kind === "category" ? (d.source as Node).color ?? "#999" : "#999"))
+    .attr("stroke-opacity", (d) => (d.kind === "category" ? 0.35 : 0.45))
+    .attr("stroke-dasharray", (d) => (d.kind === "category" ? "4,3" : null))
     // Fixed width for every edge — weight already reads through the layout
     // itself (a lower rest length pulls heavier pairs closer together), so
     // varying thickness on top of that was redundant and read as inconsistent
@@ -175,13 +255,17 @@ export function renderTagGraph(
     .selectAll<SVGGElement, Node>("g")
     .data(nodes)
     .join("g")
-    .attr("class", "graph-node")
+    .attr("class", (d) => (d.kind === "category" ? "graph-node graph-node--category" : "graph-node"))
     .style("cursor", "pointer");
 
   node
     .append("circle")
     .attr("r", (d) => d.radius)
-    .attr("fill", (d) => tagColor(d));
+    .attr("fill", (d) => tagColor(d))
+    // A halo in the canvas's own background color sets a category node apart
+    // from an ordinary tag at a glance, rather than relying on size alone.
+    .attr("stroke", (d) => (d.kind === "category" ? "var(--color-surface)" : "none"))
+    .attr("stroke-width", (d) => (d.kind === "category" ? 3 : 0));
   node
     .append("text")
     .text((d) => d.name)
@@ -210,21 +294,26 @@ export function renderTagGraph(
   );
 
   node.on("click", (_event, d) => {
-    if (!wasDragged) onSelect(d);
+    if (wasDragged) return;
+    if (d.kind === "category") {
+      if (d.categoryRecord) options.onSelectCategory?.(d.categoryRecord);
+      return;
+    }
+    onSelect(d);
   });
 
   node
     .on("mouseenter", (_event, d) => {
-      const neighbours = new Set<number>([d.id]);
+      const neighbours = new Set<string>([d.graphId]);
       for (const edge of edges) {
         const source = edge.source as Node;
         const target = edge.target as Node;
-        if (source.id === d.id) neighbours.add(target.id);
-        if (target.id === d.id) neighbours.add(source.id);
+        if (source.graphId === d.graphId) neighbours.add(target.graphId);
+        if (target.graphId === d.graphId) neighbours.add(source.graphId);
       }
-      node.style("opacity", (n) => (neighbours.has(n.id) ? 1 : 0.15));
+      node.style("opacity", (n) => (neighbours.has(n.graphId) ? 1 : 0.15));
       link.style("opacity", (l) =>
-        (l.source as Node).id === d.id || (l.target as Node).id === d.id ? 0.9 : 0.05,
+        (l.source as Node).graphId === d.graphId || (l.target as Node).graphId === d.graphId ? 0.9 : 0.05,
       );
     })
     .on("mouseleave", () => {
@@ -250,17 +339,19 @@ export function renderTagGraph(
 
   return {
     updateNode(id, changes) {
-      const target = nodes.find((n) => n.id === id);
+      // `id` is a raw tag id — restricted to `kind === "tag"` so it can never
+      // land on a category node that happens to share the same numeric id.
+      const target = nodes.find((n) => n.kind === "tag" && n.id === id);
       if (!target) return;
       if (changes.name !== undefined) target.name = changes.name;
       if (changes.color !== undefined) target.color = changes.color;
       if (changes.category !== undefined) target.category = changes.category;
       node
-        .filter((n) => n.id === id)
+        .filter((n) => n.kind === "tag" && n.id === id)
         .select("text")
         .text(target.name);
       node
-        .filter((n) => n.id === id)
+        .filter((n) => n.kind === "tag" && n.id === id)
         .select("circle")
         .attr("fill", tagColor(target));
     },
@@ -269,7 +360,7 @@ export function renderTagGraph(
       simulation.force(
         "link",
         forceLink<Node, Edge>(edges)
-          .id((d) => d.id)
+          .id((d) => d.graphId)
           .distance((d) => Math.max(50, next.linkDistance - d.weight * 6))
           .strength(next.linkStrength),
       );

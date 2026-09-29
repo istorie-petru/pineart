@@ -214,6 +214,17 @@ export interface TagMergeResult {
   items_reassigned: number;
 }
 
+export interface TagLinkResult {
+  tag_id: number;
+  linked_tag_id: number;
+  linked_tag: Tag;
+  items_tagged: number;
+}
+
+export interface TagClearColorsResult {
+  cleared: number;
+}
+
 export interface CitationEntry {
   item_id: number;
   title: string | null;
@@ -258,4 +269,5 @@ export interface Settings {
   "tagGraph.link_distance": number;
   "tagGraph.link_strength": number;
   "tagGraph.center_strength": number;
+  "tagGraph.show_categories": boolean;
 }

@@ -15,11 +15,14 @@ from ..schemas import (
     TagCategoryIn,
     TagCategoryOut,
     TagCategoryPatch,
+    TagClearColorsResult,
     TagGraph,
     TagGraphRuleIn,
     TagGraphRuleOut,
     TagGraphRulePatch,
     TagIn,
+    TagLinkIn,
+    TagLinkResult,
     TagMergeIn,
     TagMergeResult,
     TagOut,
@@ -294,6 +297,21 @@ def unused_tags(db: Session = Depends(get_db)) -> list[TagOut]:
     return [TagOut.model_validate(t) for t in tags]
 
 
+@router.post("/clear-colors", response_model=TagClearColorsResult)
+def clear_tag_colors(db: Session = Depends(get_db)) -> TagClearColorsResult:
+    """Reset every tag's own color, leaving category colors untouched.
+
+    Declared before `/{tag_id}` for the same routing reason as `/unused` and
+    `/categories` above. Colors aren't indexed for search, so unlike a rename
+    or merge this never needs to reindex anything.
+    """
+    tags = db.scalars(select(Tag).where(Tag.color.is_not(None))).all()
+    for tag in tags:
+        tag.color = None
+    db.commit()
+    return TagClearColorsResult(cleared=len(tags))
+
+
 @router.get("/{tag_id}", response_model=TagOut)
 def get_tag(tag_id: int, db: Session = Depends(get_db)) -> TagOut:
     tag = db.get(Tag, tag_id)
@@ -416,6 +434,49 @@ def merge_tag(tag_id: int, payload: TagMergeIn, db: Session = Depends(get_db)) -
 
     return TagMergeResult(
         merged_tag_id=tag_id, into_tag_id=target.id, items_reassigned=reassigned
+    )
+
+
+@router.post("/{tag_id}/link", response_model=TagLinkResult)
+def link_tag(tag_id: int, payload: TagLinkIn, db: Session = Depends(get_db)) -> TagLinkResult:
+    """Add another tag to every item that already carries this one.
+
+    Distinct from merge: merge collapses two identities into one and deletes
+    the source; this leaves both tags standing and just widens the second
+    one's coverage to match the first's — for pairs that are related but not
+    actually the same thing ("Haikyu" -> "Sports anime"). The target may be a
+    brand-new name, created the same way any other tag input on this app
+    creates one.
+    """
+    source = db.get(Tag, tag_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Tag not found")
+
+    target = tag_service.get_or_create(db, payload.tag_name)
+    if target.id == source.id:
+        raise HTTPException(status_code=400, detail="Cannot link a tag to itself")
+
+    already_tagged = {
+        row for row in db.scalars(select(ItemTag.item_id).where(ItemTag.tag_id == target.id)).all()
+    }
+    source_item_ids = list(
+        db.scalars(select(ItemTag.item_id).where(ItemTag.tag_id == source.id)).all()
+    )
+
+    tagged = 0
+    for item_id in source_item_ids:
+        if item_id not in already_tagged:
+            db.execute(ItemTag.__table__.insert().values(item_id=item_id, tag_id=target.id))
+            tagged += 1
+
+    db.commit()
+    db.refresh(target)
+
+    for item in db.scalars(select(Item).where(Item.id.in_(source_item_ids))).all():
+        search.reindex_item(db, item)
+
+    return TagLinkResult(
+        tag_id=tag_id, linked_tag_id=target.id, linked_tag=TagOut.model_validate(target), items_tagged=tagged
     )
 
 

@@ -165,6 +165,7 @@ def test_tag_graph_physics_defaults_and_round_trip(client):
     assert defaults["tagGraph.link_distance"] == 110
     assert defaults["tagGraph.link_strength"] == 0.2
     assert defaults["tagGraph.center_strength"] == 0.1
+    assert defaults["tagGraph.show_categories"] is False
 
     updated = client.put(
         "/api/settings",
@@ -174,6 +175,7 @@ def test_tag_graph_physics_defaults_and_round_trip(client):
                 "tagGraph.link_distance": 60,
                 "tagGraph.link_strength": 0.8,
                 "tagGraph.center_strength": 0.4,
+                "tagGraph.show_categories": True,
             }
         },
     ).json()
@@ -181,6 +183,15 @@ def test_tag_graph_physics_defaults_and_round_trip(client):
     assert updated["tagGraph.link_distance"] == 60
     assert updated["tagGraph.link_strength"] == 0.8
     assert updated["tagGraph.center_strength"] == 0.4
+    assert updated["tagGraph.show_categories"] is True
+
+    # Persists across requests, not just echoed back in the same response.
+    assert client.get("/api/settings").json()["tagGraph.show_categories"] is True
+
+
+def test_tag_graph_show_categories_rejects_non_boolean(client):
+    response = client.put("/api/settings", json={"values": {"tagGraph.show_categories": "yes"}})
+    assert response.status_code == 400
 
 
 def test_tag_graph_physics_rejects_out_of_range_values(client):

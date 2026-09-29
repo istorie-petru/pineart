@@ -23,8 +23,10 @@ import type {
   SortKey,
   Tag,
   TagCategory,
+  TagClearColorsResult,
   TagGraph,
   TagGraphRule,
+  TagLinkResult,
   TagMergeResult,
   TagSuggestion,
   UploadResult,
@@ -299,6 +301,9 @@ export const api = {
   unusedTags: () => request<Tag[]>("/api/tags/unused"),
   mergeTag: (id: number, intoTagId: number) =>
     request<TagMergeResult>(`/api/tags/${id}/merge`, json("POST", { into_tag_id: intoTagId })),
+  linkTag: (id: number, tagName: string) =>
+    request<TagLinkResult>(`/api/tags/${id}/link`, json("POST", { tag_name: tagName })),
+  clearTagColors: () => request<TagClearColorsResult>("/api/tags/clear-colors", { method: "POST" }),
 
   // --- tag categories ---
   listTagCategories: () => request<TagCategory[]>("/api/tags/categories"),

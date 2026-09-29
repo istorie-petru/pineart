@@ -89,6 +89,71 @@ def test_tag_merge_reassigns_and_dedupes(client: TestClient) -> None:
     assert "landscapes" not in {t["name"] for t in remaining}
 
 
+def test_tag_link_adds_target_without_touching_source(client: TestClient) -> None:
+    item1 = upload(client, image_kwargs={"seed": 1})
+    item2 = upload(client, image_kwargs={"seed": 2})
+
+    client.patch(f"/api/items/{item1['item']['id']}", json={"tags": ["haikyu"]})
+    client.patch(f"/api/items/{item2['item']['id']}", json={"tags": ["haikyu", "sports anime"]})
+
+    tags = {t["name"]: t["id"] for t in client.get("/api/tags").json()}
+    source_id = tags["haikyu"]
+
+    result = client.post(f"/api/tags/{source_id}/link", json={"tag_name": "sports anime"})
+    assert result.status_code == 200
+    body = result.json()
+    # item1 didn't have it -> tagged; item2 already had it -> deduped, not double-counted.
+    assert body["items_tagged"] == 1
+    assert body["linked_tag"]["name"] == "sports anime"
+
+    # Both tags still exist — link is not a merge.
+    remaining = {t["name"] for t in client.get("/api/tags").json()}
+    assert "haikyu" in remaining
+    assert "sports anime" in remaining
+
+    item1_tags = {t["name"] for t in client.get(f"/api/items/{item1['item']['id']}").json()["tags"]}
+    assert item1_tags == {"haikyu", "sports anime"}
+
+
+def test_tag_link_can_create_a_brand_new_target_tag(client: TestClient) -> None:
+    item = upload(client)
+    client.patch(f"/api/items/{item['item']['id']}", json={"tags": ["shoyo-hinata"]})
+    source_id = {t["name"]: t["id"] for t in client.get("/api/tags").json()}["shoyo-hinata"]
+
+    result = client.post(f"/api/tags/{source_id}/link", json={"tag_name": "brand new tag"})
+    assert result.status_code == 200
+    assert result.json()["items_tagged"] == 1
+
+    item_tags = {t["name"] for t in client.get(f"/api/items/{item['item']['id']}").json()["tags"]}
+    assert "brand new tag" in item_tags
+
+
+def test_tag_link_rejects_linking_a_tag_to_itself(client: TestClient) -> None:
+    client.post("/api/tags", json={"name": "solo"})
+    tag_id = {t["name"]: t["id"] for t in client.get("/api/tags").json()}["solo"]
+
+    response = client.post(f"/api/tags/{tag_id}/link", json={"tag_name": "solo"})
+    assert response.status_code == 400
+
+
+def test_clear_tag_colors_resets_only_direct_colors(client: TestClient) -> None:
+    client.post("/api/tags", json={"name": "red-tag", "color": "#ff0000"})
+    client.post("/api/tags", json={"name": "no-color-tag"})
+    category = client.post(
+        "/api/tags/categories", json={"name": "Cat A", "color": "#00ff00"}
+    ).json()
+
+    result = client.post("/api/tags/clear-colors")
+    assert result.status_code == 200
+    assert result.json()["cleared"] == 1
+
+    tags = {t["name"]: t for t in client.get("/api/tags").json()}
+    assert tags["red-tag"]["color"] is None
+    assert tags["no-color-tag"]["color"] is None
+    # Category colors are untouched.
+    assert client.get("/api/tags/categories").json()[0]["color"] == category["color"]
+
+
 def test_unused_tags_lists_only_zero_item_tags(client: TestClient) -> None:
     item = upload(client)
     client.patch(f"/api/items/{item['item']['id']}", json={"tags": ["used"]})
